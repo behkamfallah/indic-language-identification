@@ -1,0 +1,165 @@
+# -----------------------------------------------------------------------------
+# Task 1 commented config reference
+# -----------------------------------------------------------------------------
+# This file is a documentation-first template.
+# You can run it directly after adjusting values.
+#
+# Run:
+#   python train_model.py --config configs/task1_commented_reference.yaml
+#
+# Optional runtime override examples:
+#   --override training.learning_rate=2e-5
+#   --override model.id=facebook/w2v-bert-2.0
+# -----------------------------------------------------------------------------
+
+# A human-readable name for this experiment run.
+# Used by Trainer/W&B and for easier comparison between runs.
+run_name: task1_reference_experiment
+
+# Directory where run artifacts are saved:
+# - resolved_config.json
+# - train_metrics.json / eval_metrics.json
+# - label_mapping.json
+output_dir: ./outputs/task1_reference_experiment
+
+# Directory where final model weights + feature extractor are saved.
+save_dir: ./models/task1_reference_experiment
+
+# Global random seed for reproducibility.
+# Affects data shuffling and model initialization behavior.
+seed: 42
+
+data:
+  # Hugging Face dataset ID.
+  dataset_id: badrex/nnti-dataset-full
+
+  # Dataset split names to use for training and validation.
+  train_split: train
+  eval_split: validation
+
+  # Column name containing audio samples / audio file references.
+  audio_column: audio_filepath
+
+  # Column name containing class label strings (language names).
+  label_column: language
+
+  # Optional metadata column kept after preprocessing.
+  # Useful later for analysis (e.g., speaker-bias checks).
+  speaker_column: speaker_id
+
+  # Target sampling rate for all audio during preprocessing.
+  # All clips are resampled to this value.
+  sampling_rate: 16000
+
+  # Max audio length (seconds) fed to the model.
+  # Longer samples are truncated.
+  max_duration_seconds: 7.0
+
+  # Batch size used during dataset .map preprocessing.
+  # This is NOT the training batch size.
+  preprocessing_batch_size: 32
+
+model:
+  # Pretrained checkpoint to fine-tune.
+  # Keep below project limit (600M parameters).
+  id: facebook/mms-300m
+
+  # If true, set several dropout parameters in model config to `dropout`.
+  # Useful for regularization experiments.
+  apply_dropout: false
+
+  # Dropout value applied when apply_dropout=true.
+  dropout: 0.1
+
+  # If true, freeze backbone feature encoder layers.
+  # Can reduce overfitting and memory, but may hurt adaptation.
+  freeze_feature_encoder: false
+
+training:
+  # Per-device training batch size.
+  # Effective total batch = batch_size * gradient_accumulation_steps * num_devices.
+  batch_size: 8
+
+  # Per-device eval batch size.
+  eval_batch_size: 8
+
+  # Number of forward passes accumulated before one optimizer step.
+  gradient_accumulation_steps: 2
+
+  # Number of full passes over the training set.
+  num_train_epochs: 3
+
+  # Optimizer learning rate.
+  learning_rate: 1.0e-5
+
+  # Fraction of total training steps used for LR warmup.
+  warmup_ratio: 0.1
+
+  # L2 weight decay regularization strength.
+  weight_decay: 0.01
+
+  # LR scheduler type.
+  # Common choices: linear, cosine, constant.
+  lr_scheduler_type: linear
+
+  # Evaluation schedule:
+  # - "steps": evaluate every `eval_steps`
+  # - "epoch": evaluate once per epoch
+  eval_strategy: steps
+  eval_steps: 100
+
+  # Checkpoint save schedule:
+  # - "steps": save every `save_steps`
+  # - "epoch": save once per epoch
+  save_strategy: steps
+  save_steps: 100
+
+  # How often to log training metrics.
+  logging_steps: 10
+
+  # Maximum number of checkpoints kept on disk.
+  save_total_limit: 2
+
+  # If true, reload best checkpoint at end of training.
+  load_best_model_at_end: true
+
+  # Metric used to define "best" checkpoint.
+  metric_for_best_model: accuracy
+
+  # Set true if higher metric values are better (true for accuracy).
+  greater_is_better: true
+
+  # Mixed precision flags.
+  # Script auto-disables them when CUDA is unavailable.
+  fp16: true
+  bf16: false
+
+  # Save memory by recomputing activations during backward pass.
+  gradient_checkpointing: false
+
+  # DataLoader worker processes.
+  dataloader_num_workers: 4
+
+  # If true, push artifacts to HF Hub after training (auth required).
+  push_to_hub: false
+
+  # Optional length bucketing for efficiency.
+  # Usually false for audio unless tested.
+  group_by_length: false
+
+tracking:
+  # If true, report metrics to Weights & Biases.
+  use_wandb: false
+
+  # W&B project name.
+  wandb_project: Indic-SLID
+
+  # W&B run display name.
+  wandb_run_name: task1_reference_experiment
+
+  # Environment variable names used for secrets.
+  # Example:
+  #   export HF_TOKEN=...
+  #   export WANDB_API_KEY=...
+  hf_token_env: HF_TOKEN
+  wandb_api_key_env: WANDB_API_KEY
