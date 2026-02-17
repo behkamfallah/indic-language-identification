@@ -9,7 +9,8 @@
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt (cpu based)
+pip install -r cuda_requirements.txt (cuda based)
 ```
 
 ## Project Structure
