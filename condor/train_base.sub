@@ -13,5 +13,5 @@ request_memory = 16G
 requirements = UidDomain == "cs.uni-saarland.de"
 +WantGPUHomeMounted = true
 queue script_name, config_name from (
-  train_model task1_baseline_mms300m.yaml
+  train_model.py task1_baseline_mms300m.yaml
 )
