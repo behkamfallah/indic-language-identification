@@ -1,7 +1,7 @@
 universe = docker
 docker_image = sdabbasi/indic-lan   
 executable = train_base.sh
-arguments = $(script_name) --config $(config_name)
+arguments = $(script_name) $(config_name)
 output = train_base.$(ClusterId).$(ProcId).out
 error = train_base.$(ClusterId).$(ProcId).err
 log = train_base.$(ClusterId).log
@@ -13,5 +13,5 @@ request_memory = 16G
 requirements = UidDomain == "cs.uni-saarland.de"
 +WantGPUHomeMounted = true
 queue script_name, config_name from (
-  train_model , task1_baseline_mms300m.yaml
+  train_model task1_baseline_mms300m.yaml
 )
