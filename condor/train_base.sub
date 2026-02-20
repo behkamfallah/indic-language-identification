@@ -10,8 +10,10 @@ when_to_transfer_output = ON_EXIT
 request_GPUs = 1
 request_CPUs = 10 
 request_memory = 15.8G
-requirements = UidDomain == "cs.uni-saarland.de"
+requirements = (TARGET.Name =!= "teaching1@uller.hpc.uni-saarland.de")
 +WantGPUHomeMounted = true
 queue script_name, config_name from (
-  train_model.py task1_baseline_mms300m.yaml
+  train_model.py task1_commented_reference.yaml
+  train_model.py task1_mms_tuned.yaml
+  train_model.py task1_w2v_bert.yaml 
 )
