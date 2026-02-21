@@ -61,7 +61,10 @@ def main() -> None:
     # Build run identity and output directory for this execution.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = str(get_nested(config, "run_name", f"task1_{timestamp}"))
-    output_dir = Path(str(get_nested(config, "output_dir", f"./outputs/{run_name}")))
+    
+    # Append timestamp to output directory to ensure unique folders per run
+    base_output_dir = str(get_nested(config, "output_dir", f"./outputs/{run_name}"))
+    output_dir = Path(f"{base_output_dir}_{timestamp}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Persist the fully resolved config for exact reproducibility.
