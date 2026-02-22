@@ -20,10 +20,10 @@ run_name: task1_reference_experiment
 # - resolved_config.json
 # - train_metrics.json / eval_metrics.json
 # - label_mapping.json
-output_dir: ./outputs/task1_reference_experiment
+output_dir: ./outputs
 
 # Directory where final model weights + feature extractor are saved.
-save_dir: ./models/task1_reference_experiment
+save_dir: ./models
 
 # Global random seed for reproducibility.
 # Affects data shuffling and model initialization behavior.

@@ -1,6 +1,6 @@
 run_name: task1_baseline_mms300m
-output_dir: ./outputs/task1_baseline_mms300m
-save_dir: ./models/task1_baseline_mms300m
+output_dir: ./outputs
+save_dir: ./models
 seed: 42
 
 data:

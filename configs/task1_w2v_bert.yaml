@@ -1,6 +1,6 @@
 run_name: task1_w2v_bert
-output_dir: ./outputs/task1_w2v_bert
-save_dir: ./models/task1_w2v_bert
+output_dir: ./outputs
+save_dir: ./models
 seed: 42
 
 data:
