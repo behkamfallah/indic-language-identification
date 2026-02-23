@@ -46,7 +46,7 @@ training:
   group_by_length: false
 
 tracking:
-  use_wandb: false
+  use_wandb: true
   wandb_project: Indic-SLID
   wandb_run_name: task1_baseline_mms300m
   hf_token_env: HF_TOKEN
