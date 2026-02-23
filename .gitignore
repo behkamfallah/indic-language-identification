@@ -8,6 +8,7 @@ models/
 # Condor artifacts
 condor/docker_stderror
 condor/docker_stdout
+condor/logs2keep/
 condor/*.err
 condor/*.out
 condor/*.log
