@@ -44,7 +44,7 @@ from transformers import (
 )
 
 # These are your repo utilities (we reuse them to keep changes minimal).
-from config_utils import load_yaml, get_nested
+from config_utils import load_yaml, get_nested, merge_dicts, parse_overrides
 from dataset_utils import prepare_encoded_datasets
 from trainer_utils import AudioDataCollator
 
@@ -115,53 +115,92 @@ def plot_points(
     plt.close()
 
 
+def build_tsne_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description="t-SNE analysis of audio model representations")
+    ap.add_argument("--config", type=Path, required=True, help="YAML config used for the run")
+    ap.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help='Config override "key=value". Can repeat: --override a.b=1 --override c=2',
+    )
+    ap.add_argument("--model_dir", type=Path, default=None, help="Explicit HF model dir. If omitted, auto-pick latest run.")
+    ap.add_argument("--split", choices=["train", "eval"], default="eval", help="Which dataset split to analyze")
+    ap.add_argument("--max_items", type=int, default=2000, help="Cap on number of items for t-SNE (for speed)")
+    ap.add_argument("--batch_size", type=int, default=8, help="Batch size for embedding extraction")
+    ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    return ap
+
+
 def main() -> None:
     # -----------------------
     # 1) CLI args (minimal)
     # -----------------------
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=Path, required=True, help="YAML config used for the run")
-    ap.add_argument("--split", choices=["train", "eval"], default="eval")
-    ap.add_argument("--max_items", type=int, default=2000, help="Cap for speed; t-SNE is expensive")
-    ap.add_argument("--batch_size", type=int, default=8)
-    ap.add_argument("--seed", type=int, default=42)
+    ap = build_tsne_arg_parser()
     args = ap.parse_args()
 
     # Seed controls t-SNE randomness + any dataset shuffling done inside utilities.
     set_seed(args.seed)
 
     # -----------------------
-    # 2) Load config, directories & feature extractor
+    # 2) Load config + merge overrides (same style as training)
     # -----------------------
     config = load_yaml(args.config)
+    overrides = parse_overrides(args.override)
+    config = merge_dicts(config, overrides)
 
-    # YAML contains model.id used in training; we only need it as a fallback.
-    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
-    run_name = str(get_nested(config, "run_name"))
-    
-    # Output Directory
-    base_output_dir = str(get_nested(config, "output_dir"))
+    # Required fields (training expects these to exist too)
+    run_name = get_nested(config, "run_name")
+    if not run_name:
+        raise ValueError("Missing 'run_name' in config.")
+    run_name = str(run_name)
+
+    base_output_dir = get_nested(config, "output_dir")
     if not base_output_dir:
-        base_output_dir = "./outputs"
-    output_dir = Path(base_output_dir) / run_name / "tsne_analysis"
+        raise ValueError("Missing 'output_dir' in config.")
+    base_output_dir = Path(str(base_output_dir))
+
+    base_model_dir = get_nested(config, "save_dir")
+    if not base_model_dir:
+        raise ValueError("Missing 'save_dir' in config.")
+    base_model_dir = Path(str(base_model_dir))
+
+    # YAML contains model.id used in training; we only need it as fallback
+    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
+
+    # -----------------------
+    # 3) Resolve model_dir consistent with training naming:
+    # train_model.py uses run_id = f"{run_name}_{timestamp}" and saves under save_dir/run_id :contentReference[oaicite:1]{index=1}
+    # -----------------------
+    if args.model_dir is not None:
+        model_dir = args.model_dir
+        run_id = model_dir.name
+    else:
+        # auto-pick latest folder matching run_name_*
+        candidates = [p for p in base_model_dir.glob(f"{run_name}_*") if p.is_dir()]
+        if not candidates:
+            raise FileNotFoundError(
+                f"No saved runs found in {base_model_dir} matching {run_name}_*.\n"
+                f"Pass --model_dir explicitly or check your save_dir/run_name."
+            )
+        model_dir = max(candidates, key=lambda p: p.stat().st_mtime)
+        run_id = model_dir.name
+
+    # Save output alongside training's run_id structure
+    output_dir = base_output_dir / run_id / "tsne_analysis"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Model Directory
-    base_model_dir = str(get_nested(config, "save_dir"))
-    if not base_model_dir:
-        base_model_dir = "./models/"
-    # Update config so Trainer uses this timestamped path
-    config["model_dir"] = str(Path(base_model_dir) / run_name)
+    # Store resolved model_dir back into config (dict!)
+    # config["model_dir"] = str(model_dir)
+    config.merge_dicts(config, {"model_dir": str(model_dir)})
 
-    # Prefer loading the feature extractor from the fine-tuned directory
-    # (because it matches the model that produced the checkpoint).
+    # Prefer loading FE from the fine-tuned directory
     try:
         feature_extractor = AutoFeatureExtractor.from_pretrained(
-            str(config.model_dir),
+            config["model_dir"],
             return_attention_mask=True,
         )
     except Exception:
-        # Fallback: load it from the base model id used in config.
         feature_extractor = AutoFeatureExtractor.from_pretrained(
             model_id,
             return_attention_mask=True,
@@ -175,9 +214,8 @@ def main() -> None:
         feature_extractor=feature_extractor,
         seed=args.seed,
     )
-    # ds = prepared.train_dataset if args.split == "train" else prepared.eval_dataset
-    # Default to eval split for analysis
-    ds = prepared.eval_dataset
+    ds = prepared.train_dataset if args.split == "train" else prepared.eval_dataset
+
 
     # Reduce size for t-SNE speed.
     n = min(len(ds), args.max_items)
