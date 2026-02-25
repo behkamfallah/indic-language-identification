@@ -250,9 +250,9 @@ def main() -> None:
         last_hidden = out.hidden_states[-1]  # (B, T, H)
 
         # If provided, attention_mask tells us which time-steps are padding.
-        attn = batch.get("attention_mask", None)
+        # attn = batch.get("attention_mask", None)
 
-        pooled = mean_pool_last_hidden(last_hidden, attn)  # (B, H)
+        pooled = mean_pool_last_hidden(last_hidden)  # (B, H)
         embs.append(pooled.detach().cpu().numpy())
 
     X = np.concatenate(embs, axis=0)  # (N, H)
