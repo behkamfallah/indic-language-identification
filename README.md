@@ -19,11 +19,13 @@ pip install -r cuda_requirements.txt (cuda based)
 - `config_utils.py`: YAML loading, override parsing, nested config helpers, JSON artifact writing
 - `tracking_utils.py`: Hugging Face and W&B auth/tracking setup
 - `dataset_utils.py`: dataset loading, validation, audio casting, preprocessing/encoding
+- `audio_augment_utils.py`: Task 2 speaker-obfuscation augmentation (pitch/spectral/timbre masking)
 - `model_utils.py`: model config + model initialization + parameter counting
 - `trainer_utils.py`: collator, `TrainingArguments`, metrics function, `Trainer` construction
 - `configs/task1_baseline_mms300m.yaml`: baseline reproduction config
 - `configs/task1_mms_tuned.yaml`: tuned MMS experiment
 - `configs/task1_w2v_bert.yaml`: alternate pre-trained model experiment
+- `configs/task2_speaker_obfuscation.yaml`: Task 2 config with speaker-bias mitigation augmentations
 - `configs/task1_commented_reference.yaml`: fully documented config with inline explanations for each field
 - `docs/file_function_relationships.md`: Mermaid diagram of file/function dependencies
 - `docs/training_execution_flow.md`: Mermaid diagram of runtime execution flow
@@ -47,6 +49,15 @@ python train_model.py --config configs/task1_mms_tuned.yaml
 ```bash
 python train_model.py --config configs/task1_w2v_bert.yaml
 ```
+
+## Run Task 2 Experiment (Speaker Bias Mitigation)
+
+```bash
+python train_model.py --config configs/task2_speaker_obfuscation.yaml
+```
+
+Task 2 augmentations are controlled by the `augmentation` section in YAML.
+All Task 1 configs keep this section disabled by default, so baseline behavior remains unchanged.
 
 ## Optional Runtime Overrides
 

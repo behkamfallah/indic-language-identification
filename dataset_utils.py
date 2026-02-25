@@ -17,6 +17,7 @@ import numpy as np
 from datasets import Audio, load_dataset
 from transformers import AutoFeatureExtractor
 
+from audio_augment_utils import build_speaker_obfuscation_augmenter
 from config_utils import get_nested
 
 
@@ -62,6 +63,7 @@ def prepare_encoded_datasets(
     sampling_rate = int(get_nested(config, "data.sampling_rate", 16000))
     max_duration_seconds = float(get_nested(config, "data.max_duration_seconds", 7.0))
     map_batch_size = int(get_nested(config, "data.preprocessing_batch_size", 32))
+    augment_train_only = bool(get_nested(config, "augmentation.train_only", True))
 
     dataset = load_dataset(dataset_id)
     train_ds = dataset[train_split_name].shuffle(seed=seed)
@@ -85,11 +87,24 @@ def prepare_encoded_datasets(
 
     model_input_name = feature_extractor.model_input_names[0]
     max_length = int(sampling_rate * max_duration_seconds)
+    augmenter = build_speaker_obfuscation_augmenter(
+        config=config,
+        sampling_rate=sampling_rate,
+        seed=seed,
+    )
 
-    def preprocess(examples: Dict[str, Any]) -> Dict[str, Any]:
+    def preprocess(
+        examples: Dict[str, Any],
+        apply_augmentation: bool = False,
+    ) -> Dict[str, Any]:
         """Convert raw audio arrays into padded/truncated model features."""
 
-        audio_arrays = [sample["array"] for sample in examples[audio_column]]
+        audio_arrays = []
+        for sample in examples[audio_column]:
+            audio = np.asarray(sample["array"], dtype=np.float32)
+            if apply_augmentation and augmenter is not None:
+                audio = augmenter(audio)
+            audio_arrays.append(audio)
 
         encoded = feature_extractor(
             audio_arrays,
@@ -108,13 +123,16 @@ def prepare_encoded_datasets(
         return encoded
 
     train_encoded = train_ds.map(
-        preprocess,
+        lambda batch: preprocess(batch, apply_augmentation=augmenter is not None),
         remove_columns=[col for col in train_ds.column_names if col not in keep_cols],
         batched=True,
         batch_size=map_batch_size,
     )
     eval_encoded = eval_ds.map(
-        preprocess,
+        lambda batch: preprocess(
+            batch,
+            apply_augmentation=augmenter is not None and not augment_train_only,
+        ),
         remove_columns=[col for col in eval_ds.column_names if col not in keep_cols],
         batched=True,
         batch_size=map_batch_size,

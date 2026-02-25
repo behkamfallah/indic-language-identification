@@ -1,6 +1,6 @@
-"""Main training entrypoint for Indic spoken language identification.
+"""
+Main training entrypoint for Indic spoken language identification.
 
-The script is intentionally thin and readable:
 1. Parse config + CLI overrides.
 2. Build data/model/trainer via dedicated helper modules.
 3. Run train/eval.
@@ -26,7 +26,7 @@ from trainer_utils import AudioDataCollator, build_trainer, build_training_argum
 def build_arg_parser() -> argparse.ArgumentParser:
     """Create CLI argument parser for the training script."""
 
-    parser = argparse.ArgumentParser(description="Task 1 training script for Indic language ID")
+    parser = argparse.ArgumentParser(description="Training script for Indic language identification.")
     parser.add_argument("--config", type=Path, required=True, help="Path to YAML config")
     parser.add_argument(
         "--override",
@@ -45,7 +45,7 @@ def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    # Load base YAML, then merge runtime overrides (if any).
+    # Load YAML, then merge command-line overrides (if any).
     config = load_yaml(args.config)
     overrides = parse_overrides(args.override)
     config = merge_dicts(config, overrides)
@@ -54,7 +54,7 @@ def main() -> None:
     seed = int(config.get("seed", 42))
     set_seed(seed)
 
-    # Optional authentication setup (environment-variable driven).
+    # Optional authentication setup.
     maybe_login_hf(config)
     use_wandb = setup_wandb(config)
 
@@ -65,7 +65,7 @@ def main() -> None:
     # We fetch the exact values provided in the config without arbitrary fallbacks.
     base_run_name = str(get_nested(config, "run_name"))
     if not base_run_name:
-         raise ValueError("Config file must specify 'run_name'")
+         raise ValueError("Config file must specify 'run_name'.")
 
     # Create unique run ID by appending timestamp to the configured name
     run_id = f"{base_run_name}_{timestamp}"
@@ -73,18 +73,18 @@ def main() -> None:
     # 1. Output Directory
     base_output_dir = str(get_nested(config, "output_dir"))
     if not base_output_dir:
-        raise ValueError("Config file must specify 'output_dir'")
+        raise ValueError("Config file must specify 'output_dir'.")
     output_dir = Path(base_output_dir) / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Model Save Directory
     base_save_dir = str(get_nested(config, "save_dir"))
     if not base_save_dir:
-        raise ValueError("Config file must specify 'save_dir'")
+        raise ValueError("Config file must specify 'save_dir'.")
     # Update config so Trainer uses this timestamped path
     config["save_dir"] = str(Path(base_save_dir) / run_id)
 
-    # 3. WandB Run Name (Optional but strict if present)
+    # 3. WandB Run Name
     wandb_name = get_nested(config, "tracking.wandb_run_name")
     if wandb_name:
         config["tracking"]["wandb_run_name"] = f"{wandb_name}_{timestamp}"
@@ -130,7 +130,7 @@ def main() -> None:
     n_params = count_parameters(model)
     print(f"Model parameters: {n_params / 1e6:.2f}M")
     if n_params > 600_000_000:
-        print("WARNING: model exceeds the 600M parameter limit in the project instructions.")
+        print("WARNING: model exceeds the 600M parameter limit.")
 
     # Build Trainer components.
     training_args = build_training_arguments(config, output_dir=output_dir, run_name=run_id)

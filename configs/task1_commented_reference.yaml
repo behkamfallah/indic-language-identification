@@ -59,6 +59,54 @@ data:
   # This is NOT the training batch size.
   preprocessing_batch_size: 32
 
+# Optional Task 2 speaker-bias mitigation augmentations.
+# Keep disabled for Task 1 baseline reproduction.
+augmentation:
+  # Master switch for all Task 2 augmentations.
+  enabled: false
+
+  # If true, only train split is augmented; eval stays clean.
+  train_only: true
+
+  # Probability of applying augmentation pipeline to each sample.
+  apply_prob: 0.9
+
+  # 1) Attack pitch (F0) using SoX pitch shift.
+  pitch:
+    enabled: true
+    prob: 0.8
+    cents_min: -280.0
+    cents_max: 280.0
+
+  # 2) Attack prominent narrowband spectral signatures.
+  spectral:
+    enabled: true
+    prob: 0.8
+    notches_min: 1
+    notches_max: 3
+    center_freq_min: 250.0
+    center_freq_max: 3800.0
+    q_min: 0.8
+    q_max: 2.2
+    attenuation_db_min: -18.0
+    attenuation_db_max: -6.0
+    highpass_prob: 0.25
+    highpass_min_hz: 70.0
+    highpass_max_hz: 250.0
+    lowpass_prob: 0.25
+    lowpass_min_hz: 2800.0
+    lowpass_max_hz: 7000.0
+
+  # 3) Attack timbre/formant envelope in STFT domain.
+  timbre_mask:
+    enabled: true
+    prob: 0.6
+    n_fft: 400
+    hop_length: 160
+    win_length: 400
+    freq_mask_param: 24
+    time_mask_param: 30
+
 model:
   # Pretrained checkpoint to fine-tune.
   # Keep below project limit (600M parameters).
