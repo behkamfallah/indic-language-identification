@@ -12,18 +12,6 @@ What this script does:
    - tsne_by_language.png
    - tsne_by_speaker.png
    - metadata_tsne.csv
-
-Nothing else (no probes, no extra metrics).
-
-Assumptions:
-- Dataset mapping keeps columns: speaker_id and language (or whatever YAML says).
-- Saved model directory is a HuggingFace "from_pretrained" directory.
-
-Usage example:
-python analyze_tsne_minimal.py \
-  --config task1_baseline_mms300m.yaml \
-  --model_dir ./models/<RUN_DIR> \
-  --out_dir ./outputs/tsne_baseline
 """
 
 from __future__ import annotations
@@ -49,29 +37,18 @@ from dataset_utils import prepare_encoded_datasets
 from trainer_utils import AudioDataCollator
 
 
-def mean_pool_last_hidden(
-    last_hidden: torch.Tensor,
-    attention_mask: torch.Tensor | None,
-) -> torch.Tensor:
+def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tensor | None= None) -> torch.Tensor:
     """
-    Convert per-frame representations -> one vector per example.
-
     last_hidden: (B, T, H)
     attention_mask: (B, T) where 1 = valid, 0 = padding (optional)
     return: (B, H)
     """
-    # If we don't have an attention mask, just average over time.
     if attention_mask is None:
         return last_hidden.mean(dim=1)
 
-    # Expand mask to match hidden dimension so we can multiply.
     mask = attention_mask.to(last_hidden.dtype).unsqueeze(-1)  # (B, T, 1)
-
-    # Sum only valid frames.
     summed = (last_hidden * mask).sum(dim=1)  # (B, H)
-
-    # Divide by number of valid frames (avoid division by 0).
-    denom = mask.sum(dim=1).clamp_min(1.0)  # (B, 1)
+    denom = mask.sum(dim=1).clamp_min(1.0)    # (B, 1)
     return summed / denom
 
 
@@ -81,6 +58,7 @@ def plot_points(
     title: str,
     out_png: Path,
     max_legend_items: int = 40,
+    legend: bool = False,
 ) -> None:
     """
     Scatter-plot 2D points and color by label.
@@ -104,10 +82,11 @@ def plot_points(
     plt.ylabel("t-SNE dim 2")
 
     # Keep legend only if it won't be unreadable.
-    if len(unique_labels) <= max_legend_items:
-        plt.legend(markerscale=2, fontsize=8, loc="best")
-    else:
-        plt.legend([], [], frameon=False)
+    if legend:
+        if len(unique_labels) <= max_legend_items:
+            plt.legend(markerscale=2, fontsize=8, loc="best")
+        else:
+            plt.legend([], [], frameon=False)
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
@@ -134,7 +113,7 @@ def build_tsne_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     # -----------------------
-    # 1) CLI args (minimal)
+    # 1) CLI args
     # -----------------------
     ap = build_tsne_arg_parser()
     args = ap.parse_args()
@@ -176,23 +155,24 @@ def main() -> None:
         model_dir = args.model_dir
         run_id = model_dir.name
     else:
-        # auto-pick latest folder matching run_name_*
-        candidates = [p for p in base_model_dir.glob(f"{run_name}_*") if p.is_dir()]
+        # auto-pick latest folder matching run_name*
+        candidates = [p for p in Path(base_model_dir).glob(f"{run_name}*") if p.is_dir()]
         if not candidates:
             raise FileNotFoundError(
-                f"No saved runs found in {base_model_dir} matching {run_name}_*.\n"
+                f"No saved runs found in {base_model_dir} matching {run_name}*.\n"
                 f"Pass --model_dir explicitly or check your save_dir/run_name."
             )
         model_dir = max(candidates, key=lambda p: p.stat().st_mtime)
         run_id = model_dir.name
 
     # Save output alongside training's run_id structure
-    output_dir = base_output_dir / run_id / "tsne_analysis"
+    output_dir = f"{base_output_dir}/{run_id}/tsne_analysis"
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Store resolved model_dir back into config (dict!)
-    # config["model_dir"] = str(model_dir)
-    config.merge_dicts(config, {"model_dir": str(model_dir)})
+    config["model_dir"] = str(model_dir)
+    # config.merge_dicts(config, {"model_dir": str(model_dir)})
 
     # Prefer loading FE from the fine-tuned directory
     try:
@@ -230,9 +210,9 @@ def main() -> None:
     # -----------------------
     # 4) Load fine-tuned model with hidden states enabled
     # -----------------------
-    cfg = AutoConfig.from_pretrained(str(config.model_dir))
+    cfg = AutoConfig.from_pretrained(str(config["model_dir"]))
     cfg.output_hidden_states = True  # critical: we need last hidden layer
-    model = AutoModelForAudioClassification.from_pretrained(str(config.model_dir), config=cfg)
+    model = AutoModelForAudioClassification.from_pretrained(str(config["model_dir"]), config=cfg)
     model.eval()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
