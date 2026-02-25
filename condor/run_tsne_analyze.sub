@@ -1,6 +1,6 @@
 universe = docker
 docker_image = sdabbasi/indic-lan   
-executable = train_base.sh
+executable = run_tsne_analyze.sh
 arguments = $(script_name) $(config_name)
 output = train_base.$(ClusterId).$(ProcId).out
 error = train_base.$(ClusterId).$(ProcId).err
@@ -14,7 +14,4 @@ requirements = (TARGET.Name =!= "teaching1@uller.hpc.uni-saarland.de")
 +WantGPUHomeMounted = true
 queue script_name, config_name from (
   analyze_tsne.py task1_baseline_mms300m.yaml
-  analyze_tsne.py task1_mms_tuned.yaml
-  analyze_tsne.py task1_w2v_bert.yaml 
-  analyze_tsne.py task1_commented_reference.yaml
 )
