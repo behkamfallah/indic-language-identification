@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
+import numpy as np
+from sklearn.metrics import confusion_matrix
 from transformers import AutoFeatureExtractor, set_seed
 
 from config_utils import get_nested, load_yaml, merge_dicts, parse_overrides, save_json
@@ -156,8 +158,27 @@ def main() -> None:
     # Run evaluation and save eval metrics.
     if not args.skip_eval:
         print("Evaluation started...")
-        eval_metrics = trainer.evaluate()
+        # Use predict() instead of evaluate() to get raw predictions for confusion matrix
+        eval_output = trainer.predict(prepared_data.eval_dataset)
+        eval_metrics = eval_output.metrics
+
+        # Save standard metrics (now includes precision, recall, f1 from trainer_utils)
         save_json(output_dir / "eval_metrics.json", eval_metrics)
+
+        # Compute and save confusion matrix
+        logits = eval_output.predictions[0] if isinstance(eval_output.predictions, tuple) else eval_output.predictions
+        predictions = np.argmax(logits, axis=1)
+        labels = eval_output.label_ids
+        
+        cm = confusion_matrix(labels, predictions)
+        
+        # Save confusion matrix with class labels for easy visualization
+        cm_data = {
+            "matrix": cm.tolist(),
+            "labels": [prepared_data.id2label[i] for i in range(len(prepared_data.id2label))]
+        }
+        save_json(output_dir / "confusion_matrix.json", cm_data)
+        print(f"Confusion matrix saved to: {output_dir / 'confusion_matrix.json'}")
 
     # Save model weights and feature extractor for inference/reuse.
     model_dir = Path(str(get_nested(config, "save_dir", output_dir / "model")))

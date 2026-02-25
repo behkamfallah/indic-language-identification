@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 import evaluate
 import numpy as np
 import torch
+from sklearn.metrics import precision_recall_fscore_support
 from transformers import AutoFeatureExtractor, Trainer, TrainingArguments
 
 from config_utils import get_nested
@@ -111,7 +112,20 @@ def build_trainer(
     def compute_metrics(eval_pred: Any) -> Dict[str, float]:
         logits = eval_pred.predictions[0] if isinstance(eval_pred.predictions, tuple) else eval_pred.predictions
         predictions = np.argmax(logits, axis=1)
-        return accuracy_metric.compute(predictions=predictions, references=eval_pred.label_ids)
+        labels = eval_pred.label_ids
+
+        # Basic accuracy
+        metrics = accuracy_metric.compute(predictions=predictions, references=labels)
+
+        # Precision, Recall, F1 (weighted)
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            labels, predictions, average="weighted", zero_division=0
+        )
+        metrics["precision"] = precision
+        metrics["recall"] = recall
+        metrics["f1"] = f1
+
+        return metrics
 
     trainer_kwargs: Dict[str, Any] = {
         "model": model,
