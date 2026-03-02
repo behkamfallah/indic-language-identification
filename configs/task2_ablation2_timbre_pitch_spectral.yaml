@@ -1,0 +1,94 @@
+run_name: task2_speaker_obfuscation_mms300m_tuned
+output_dir: ./outputs
+save_dir: ./models
+seed: 42
+
+data:
+  dataset_id: badrex/nnti-dataset-full
+  train_split: train
+  eval_split: validation
+  audio_column: audio_filepath
+  label_column: language
+  speaker_column: speaker_id
+  sampling_rate: 16000
+  max_duration_seconds: 8.0
+  preprocessing_batch_size: 16
+  preprocessing_keep_in_memory: true
+  preprocessing_load_from_cache_file: false
+  preprocessing_writer_batch_size: 16
+
+model:
+  id: facebook/mms-300m
+  apply_dropout: false
+  dropout: 0.1
+  freeze_feature_encoder: false
+
+training:
+  batch_size: 8
+  eval_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_train_epochs: 8
+  learning_rate: 1.0e-5
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  lr_scheduler_type: linear
+  eval_strategy: steps
+  eval_steps: 100
+  save_strategy: steps
+  save_steps: 100
+  logging_steps: 10
+  save_total_limit: 3
+  load_best_model_at_end: true
+  metric_for_best_model: accuracy
+  greater_is_better: true
+  fp16: true
+  bf16: false
+  gradient_checkpointing: true
+  dataloader_num_workers: 4
+  push_to_hub: false
+  group_by_length: false
+
+augmentation:
+  enabled: true
+  train_only: true
+  apply_prob: 1.0
+
+  pitch:
+    enabled: true
+    prob: 1.0
+    cents_min: -280.0
+    cents_max: 280.0
+
+  spectral:
+    enabled: true
+    prob: 1.0
+    notches_min: 1
+    notches_max: 3
+    center_freq_min: 250.0
+    center_freq_max: 3800.0
+    q_min: 0.8
+    q_max: 2.2
+    attenuation_db_min: -18.0
+    attenuation_db_max: -6.0
+    highpass_prob: 0.25
+    highpass_min_hz: 70.0
+    highpass_max_hz: 250.0
+    lowpass_prob: 0.25
+    lowpass_min_hz: 2800.0
+    lowpass_max_hz: 7000.0
+
+  timbre_mask:
+    enabled: true
+    prob: 0.8
+    n_fft: 400
+    hop_length: 160
+    win_length: 400
+    freq_mask_param: 24
+    time_mask_param: 30
+
+tracking:
+  use_wandb: true
+  wandb_project: Indic-SLID
+  wandb_run_name: task2_speaker_obfuscation_mms300m_tuned
+  hf_token_env: HF_TOKEN
+  wandb_api_key_env: WANDB_API_KEY

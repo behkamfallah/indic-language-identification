@@ -33,7 +33,7 @@ class PreparedDatasets:
 
 
 def ensure_column_exists(split_columns: list[str], column_name: str, column_role: str) -> None:
-    """Raise a clear error when a required dataset column is missing."""
+    """Raise error when a required dataset column is missing."""
 
     if column_name not in split_columns:
         columns = ", ".join(split_columns)
@@ -54,20 +54,24 @@ def prepare_encoded_datasets(
     numeric `label` field aligned to `label2id`.
     """
 
-    dataset_id = str(get_nested(config, "data.dataset_id", "badrex/nnti-dataset-full"))
-    train_split_name = str(get_nested(config, "data.train_split", "train"))
-    eval_split_name = str(get_nested(config, "data.eval_split", "validation"))
-    audio_column = str(get_nested(config, "data.audio_column", "audio_filepath"))
-    label_column = str(get_nested(config, "data.label_column", "language"))
-    speaker_column = str(get_nested(config, "data.speaker_column", "speaker_id"))
-    sampling_rate = int(get_nested(config, "data.sampling_rate", 16000))
-    max_duration_seconds = float(get_nested(config, "data.max_duration_seconds", 7.0))
-    map_batch_size = int(get_nested(config, "data.preprocessing_batch_size", 32))
-    augment_train_only = bool(get_nested(config, "augmentation.train_only", True))
+    dataset_id = str(get_nested(config, "data.dataset_id"))
+    train_split_name = str(get_nested(config, "data.train_split"))
+    eval_split_name = str(get_nested(config, "data.eval_split"))
+    audio_column = str(get_nested(config, "data.audio_column"))
+    label_column = str(get_nested(config, "data.label_column"))
+    speaker_column = str(get_nested(config, "data.speaker_column"))
+    sampling_rate = int(get_nested(config, "data.sampling_rate"))
+    max_duration_seconds = float(get_nested(config, "data.max_duration_seconds"))
+    map_batch_size = int(get_nested(config, "data.preprocessing_batch_size"))
+    augment_train_only = bool(get_nested(config, "augmentation.train_only"))
 
     dataset = load_dataset(dataset_id)
     train_ds = dataset[train_split_name].shuffle(seed=seed)
     eval_ds = dataset[eval_split_name].shuffle(seed=seed)
+    print("Train columns:", train_ds.column_names)
+    print("Eval columns:", eval_ds.column_names)
+    print(f"Dataset {dataset_id} has {len(train_ds)} train samples.")
+    print(f"Dataset {dataset_id} has {len(eval_ds)} eval samples.")
 
     # Fail fast if the YAML points to incorrect column names.
     ensure_column_exists(train_ds.column_names, audio_column, "Audio")

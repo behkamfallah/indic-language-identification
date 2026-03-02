@@ -24,6 +24,7 @@ def load_yaml(path: Path) -> Dict[str, Any]:
 
     if not isinstance(config, dict):
         raise ValueError(f"Config file must contain \"key value\" pairs: {path}")
+
     return config
 
 
@@ -71,17 +72,17 @@ def merge_dicts(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
     return merged
 
 
-def get_nested(config: Dict[str, Any], dotted_key: str, default: Any = None) -> Any:
+def get_nested(config: Dict[str, Any], dotted_key: str) -> Any:
     """
     Fetch a nested config value via a dotted path.
     Example:
-      get_nested(config, "training.learning_rate", 1e-5)
+      get_nested(config, "training.learning_rate")
     """
 
     current: Any = config
     for part in dotted_key.split("."):
         if not isinstance(current, dict) or part not in current:
-            return default
+            raise KeyError(f"Missing config key: {dotted_key}")
         current = current[part]
     return current
 

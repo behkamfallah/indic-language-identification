@@ -45,9 +45,9 @@ class AudioDataCollator:
 def build_training_arguments(config: Dict[str, Any], output_dir: Path, run_name: str) -> TrainingArguments:
     """Create `TrainingArguments` from YAML config with sane defaults."""
 
-    train_cfg = get_nested(config, "training", {})
+    train_cfg = get_nested(config, "training")
     eval_strategy = str(train_cfg.get("eval_strategy", "steps"))
-    use_wandb = bool(get_nested(config, "tracking.use_wandb", False))
+    use_wandb = bool(get_nested(config, "tracking.use_wandb"))
     cuda_available = torch.cuda.is_available()
     fp16_requested = bool(train_cfg.get("fp16", cuda_available))
     bf16_requested = bool(train_cfg.get("bf16", False))

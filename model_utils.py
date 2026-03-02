@@ -23,10 +23,10 @@ def build_audio_classification_model(
     4. Optionally freeze front-end feature encoder layers.
     """
 
-    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
-    apply_dropout = bool(get_nested(config, "model.apply_dropout", False))
-    dropout_value = float(get_nested(config, "model.dropout", 0.1))
-    freeze_feature_encoder = bool(get_nested(config, "model.freeze_feature_encoder", False))
+    model_id = str(get_nested(config, "model.id"))
+    apply_dropout = bool(get_nested(config, "model.apply_dropout"))
+    dropout_value = float(get_nested(config, "model.dropout"))
+    freeze_feature_encoder = bool(get_nested(config, "model.freeze_feature_encoder"))
 
     model_config = AutoConfig.from_pretrained(
         model_id,

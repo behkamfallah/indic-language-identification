@@ -145,7 +145,7 @@ def main() -> None:
     base_model_dir = Path(str(base_model_dir))
 
     # YAML contains model.id used in training; we only need it as fallback
-    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
+    model_id = str(get_nested(config, "model.id"))
 
     # -----------------------
     # 3) Resolve model_dir consistent with training naming:
@@ -219,8 +219,8 @@ def main() -> None:
     model.to(device)
 
     # Column names (from YAML, with defaults)
-    speaker_col = str(get_nested(config, "data.speaker_column", "speaker_id"))
-    label_col = str(get_nested(config, "data.label_column", "language"))
+    speaker_col = str(get_nested(config, "data.speaker_column"))
+    label_col = str(get_nested(config, "data.label_column"))
 
     # -----------------------
     # 5) Extract embeddings (last hidden layer -> mean pooled)

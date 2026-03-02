@@ -1,4 +1,4 @@
-run_name: task2_speaker_obfuscation_mms300m
+run_name: task2_speaker_obfuscation_mms300m_tuned
 output_dir: ./outputs
 save_dir: ./models
 seed: 42
@@ -13,20 +13,23 @@ data:
   sampling_rate: 16000
   max_duration_seconds: 8.0
   preprocessing_batch_size: 16
+  preprocessing_keep_in_memory: true
+  preprocessing_load_from_cache_file: false
+  preprocessing_writer_batch_size: 16
 
 model:
   id: facebook/mms-300m
-  apply_dropout: true
+  apply_dropout: false
   dropout: 0.1
-  freeze_feature_encoder: true
+  freeze_feature_encoder: false
 
 training:
   batch_size: 8
   eval_batch_size: 8
   gradient_accumulation_steps: 2
-  num_train_epochs: 4
-  learning_rate: 5.0e-5
-  warmup_ratio: 0.05
+  num_train_epochs: 8
+  learning_rate: 1.0e-5
+  warmup_ratio: 0.1
   weight_decay: 0.01
   lr_scheduler_type: linear
   eval_strategy: steps
@@ -48,17 +51,17 @@ training:
 augmentation:
   enabled: true
   train_only: true
-  apply_prob: 0.9
+  apply_prob: 1.0
 
   pitch:
-    enabled: true
-    prob: 0.8
+    enabled: false
+    prob: 1.0
     cents_min: -280.0
     cents_max: 280.0
 
   spectral:
-    enabled: true
-    prob: 0.8
+    enabled: false
+    prob: 1.0
     notches_min: 1
     notches_max: 3
     center_freq_min: 250.0
@@ -76,7 +79,7 @@ augmentation:
 
   timbre_mask:
     enabled: true
-    prob: 0.6
+    prob: 0.8
     n_fft: 400
     hop_length: 160
     win_length: 400
@@ -86,6 +89,6 @@ augmentation:
 tracking:
   use_wandb: true
   wandb_project: Indic-SLID
-  wandb_run_name: task2_speaker_obfuscation_mms300m
-  hf_token_env: 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
-  wandb_api_key_env: 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
+  wandb_run_name: task2_speaker_obfuscation_mms300m_tuned
+  hf_token_env: HF_TOKEN
+  wandb_api_key_env: WANDB_API_KEY

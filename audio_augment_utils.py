@@ -1,32 +1,22 @@
 """Speaker-obfuscation audio augmentation helpers for Task 2.
 
-The augmentation pipeline targets three speaker-identifying cues:
-1) Pitch (F0): random SoX pitch shift with fixed sample-rate recovery.
-2) Prominent spectral signatures: random narrowband attenuation filters.
-3) Timbre/formant envelope: STFT-domain frequency/time masking.
+- Required torchaudio components must be importable (no silent fallback).
+- If augmentation is enabled, missing dependencies raise errors.
+- SoX effects failures raise errors (no silent bypass).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict
-import warnings
 
 import numpy as np
 import torch
 
 from config_utils import get_nested
 
-try:
-    from torchaudio.sox_effects import apply_effects_tensor
-    from torchaudio.transforms import FrequencyMasking, TimeMasking
-
-    TORCHAUDIO_AVAILABLE = True
-except Exception:
-    apply_effects_tensor = None  # type: ignore[assignment]
-    FrequencyMasking = None  # type: ignore[assignment]
-    TimeMasking = None  # type: ignore[assignment]
-    TORCHAUDIO_AVAILABLE = False
+from torchaudio.sox_effects import apply_effects_tensor
+from torchaudio.transforms import FrequencyMasking, TimeMasking
 
 
 @dataclass
@@ -38,53 +28,130 @@ class SpeakerObfuscationAugmenter:
     seed: int
 
     def __post_init__(self) -> None:
-        self.rng = np.random.default_rng(self.seed)
+        if not isinstance(self.config, dict):
+            raise TypeError(f"Augmenter config must be dict, got {type(self.config)}")
+
+        self.rng = np.random.default_rng(int(self.seed))
+
         self.apply_prob = float(self.config.get("apply_prob", 1.0))
-        self._sox_available = TORCHAUDIO_AVAILABLE
+        if not (0.0 <= self.apply_prob <= 1.0):
+            raise ValueError("augmentation.apply_prob must be in [0, 1]")
 
         pitch_cfg = self.config.get("pitch", {})
-        self.pitch_enabled = bool(pitch_cfg.get("enabled", True))
+        if pitch_cfg is None:
+            pitch_cfg = {}
+        if not isinstance(pitch_cfg, dict):
+            raise TypeError(f"augmentation.pitch must be dict, got {type(pitch_cfg)}")
+
+        raw_pitch_enabled = pitch_cfg.get("enabled", True)
+        if not isinstance(raw_pitch_enabled, bool):
+            raise TypeError("augmentation.pitch.enabled must be boolean")
+        self.pitch_enabled = raw_pitch_enabled
+
         self.pitch_prob = float(pitch_cfg.get("prob", 0.8))
+        if not (0.0 <= self.pitch_prob <= 1.0):
+            raise ValueError("augmentation.pitch.prob must be in [0, 1]")
         self.pitch_cents_min = float(pitch_cfg.get("cents_min", -250.0))
         self.pitch_cents_max = float(pitch_cfg.get("cents_max", 250.0))
+        if self.pitch_cents_min > self.pitch_cents_max:
+            raise ValueError("augmentation.pitch.cents_min must be <= cents_max")
 
         spectral_cfg = self.config.get("spectral", {})
-        self.spectral_enabled = bool(spectral_cfg.get("enabled", True))
+        if spectral_cfg is None:
+            spectral_cfg = {}
+        if not isinstance(spectral_cfg, dict):
+            raise TypeError(f"augmentation.spectral must be dict, got {type(spectral_cfg)}")
+
+        raw_spectral_enabled = spectral_cfg.get("enabled", True)
+        if not isinstance(raw_spectral_enabled, bool):
+            raise TypeError("augmentation.spectral.enabled must be boolean")
+        self.spectral_enabled = raw_spectral_enabled
+
         self.spectral_prob = float(spectral_cfg.get("prob", 0.8))
+        if not (0.0 <= self.spectral_prob <= 1.0):
+            raise ValueError("augmentation.spectral.prob must be in [0, 1]")
+
         self.notches_min = int(spectral_cfg.get("notches_min", 1))
         self.notches_max = int(spectral_cfg.get("notches_max", 2))
+        if self.notches_min < 0 or self.notches_max < 0 or self.notches_min > self.notches_max:
+            raise ValueError("augmentation.spectral.notches_min/max invalid")
+
         self.center_freq_min = float(spectral_cfg.get("center_freq_min", 250.0))
         self.center_freq_max = float(spectral_cfg.get("center_freq_max", 3800.0))
+        if self.center_freq_min > self.center_freq_max:
+            raise ValueError("augmentation.spectral.center_freq_min must be <= center_freq_max")
+
         self.q_min = float(spectral_cfg.get("q_min", 0.7))
         self.q_max = float(spectral_cfg.get("q_max", 2.0))
+        if self.q_min <= 0 or self.q_max <= 0 or self.q_min > self.q_max:
+            raise ValueError("augmentation.spectral.q_min/q_max invalid (must be >0 and min<=max)")
+
         self.attenuation_db_min = float(spectral_cfg.get("attenuation_db_min", -18.0))
         self.attenuation_db_max = float(spectral_cfg.get("attenuation_db_max", -6.0))
+        if self.attenuation_db_min > self.attenuation_db_max:
+            raise ValueError("augmentation.spectral.attenuation_db_min must be <= attenuation_db_max")
+
         self.highpass_prob = float(spectral_cfg.get("highpass_prob", 0.2))
+        self.lowpass_prob = float(spectral_cfg.get("lowpass_prob", 0.2))
+        for name, p in [("highpass_prob", self.highpass_prob), ("lowpass_prob", self.lowpass_prob)]:
+            if not (0.0 <= p <= 1.0):
+                raise ValueError(f"augmentation.spectral.{name} must be in [0, 1]")
+
         self.highpass_min_hz = float(spectral_cfg.get("highpass_min_hz", 50.0))
         self.highpass_max_hz = float(spectral_cfg.get("highpass_max_hz", 220.0))
-        self.lowpass_prob = float(spectral_cfg.get("lowpass_prob", 0.2))
+        if self.highpass_min_hz > self.highpass_max_hz:
+            raise ValueError("augmentation.spectral.highpass_min_hz must be <= highpass_max_hz")
+
         self.lowpass_min_hz = float(spectral_cfg.get("lowpass_min_hz", 3000.0))
         self.lowpass_max_hz = float(spectral_cfg.get("lowpass_max_hz", 7000.0))
+        if self.lowpass_min_hz > self.lowpass_max_hz:
+            raise ValueError("augmentation.spectral.lowpass_min_hz must be <= lowpass_max_hz")
 
         timbre_cfg = self.config.get("timbre_mask", {})
-        self.timbre_enabled = bool(timbre_cfg.get("enabled", True))
+        if timbre_cfg is None:
+            timbre_cfg = {}
+        if not isinstance(timbre_cfg, dict):
+            raise TypeError(f"augmentation.timbre_mask must be dict, got {type(timbre_cfg)}")
+
+        raw_timbre_enabled = timbre_cfg.get("enabled", True)
+        if not isinstance(raw_timbre_enabled, bool):
+            raise TypeError("augmentation.timbre_mask.enabled must be boolean")
+        self.timbre_enabled = raw_timbre_enabled
+
         self.timbre_prob = float(timbre_cfg.get("prob", 0.6))
+        if not (0.0 <= self.timbre_prob <= 1.0):
+            raise ValueError("augmentation.timbre_mask.prob must be in [0, 1]")
+
         self.n_fft = int(timbre_cfg.get("n_fft", 400))
         self.hop_length = int(timbre_cfg.get("hop_length", 160))
         self.win_length = int(timbre_cfg.get("win_length", 400))
+        if self.n_fft <= 0 or self.hop_length <= 0 or self.win_length <= 0:
+            raise ValueError("augmentation.timbre_mask n_fft/hop_length/win_length must be > 0")
+        if self.win_length > self.n_fft:
+            raise ValueError("augmentation.timbre_mask.win_length must be <= n_fft")
+
         self.freq_mask_param = int(timbre_cfg.get("freq_mask_param", 24))
         self.time_mask_param = int(timbre_cfg.get("time_mask_param", 30))
+        if self.freq_mask_param < 0 or self.time_mask_param < 0:
+            raise ValueError("augmentation.timbre_mask mask params must be >= 0")
+
         self._window = torch.hann_window(self.win_length)
-        self._freq_mask = (
-            FrequencyMasking(freq_mask_param=self.freq_mask_param)
-            if TORCHAUDIO_AVAILABLE and self.freq_mask_param > 0
-            else None
-        )
-        self._time_mask = (
-            TimeMasking(time_mask_param=self.time_mask_param)
-            if TORCHAUDIO_AVAILABLE and self.time_mask_param > 0
-            else None
-        )
+
+        # STRICT: if timbre is enabled, build masks exactly as configured (no None surprises).
+        self._freq_mask = FrequencyMasking(freq_mask_param=self.freq_mask_param) if self.freq_mask_param > 0 else None
+        self._time_mask = TimeMasking(time_mask_param=self.time_mask_param) if self.time_mask_param > 0 else None
+
+        if self.timbre_enabled and self.freq_mask_param == 0 and self.time_mask_param == 0:
+            raise ValueError(
+                    "timbre_mask.enabled=true but both freq_mask_param and time_mask_param are 0; "
+                    "this would be a no-op."
+            )
+
+        # If libsox.dylib linkage is broken, you’ll fail here, at startup.
+        if self.pitch_enabled or self.spectral_enabled:
+            # quick SoX sanity check
+            x = torch.zeros(1, min(1600, int(self.sampling_rate // 10)), dtype=torch.float32)
+            _y, _sr = apply_effects_tensor(x, self.sampling_rate, [["rate", str(self.sampling_rate)]])
 
     def __call__(self, waveform: np.ndarray) -> np.ndarray:
         """Return an augmented waveform (float32 numpy array)."""
@@ -94,26 +161,30 @@ class SpeakerObfuscationAugmenter:
             waveform = waveform.reshape(-1)
 
         output = torch.as_tensor(waveform, dtype=torch.float32).unsqueeze(0)
-        if output.numel() == 0 or self.rng.random() > self.apply_prob:
+        if output.numel() == 0:
             return output.squeeze(0).numpy().astype(np.float32, copy=False)
 
+        if self.rng.random() > self.apply_prob:
+            return output.squeeze(0).numpy().astype(np.float32, copy=False)
+
+        # Pitch shift (SoX)
         if self.pitch_enabled and self.rng.random() < self.pitch_prob:
             cents = float(self.rng.uniform(self.pitch_cents_min, self.pitch_cents_max))
             output = self._apply_sox_effects(
                 output,
-                effects=[
-                    ["pitch", f"{cents:.2f}"],
-                    ["rate", str(self.sampling_rate)],
-                ],
+                effects=[["pitch", f"{cents:.2f}"], ["rate", str(self.sampling_rate)]],
             )
 
+        # Spectral notches + optional HP/LP (SoX)
         if self.spectral_enabled and self.rng.random() < self.spectral_prob:
             output = self._apply_sox_effects(output, effects=self._build_spectral_effects())
 
+        # Timbre masking in STFT domain
         output = output.squeeze(0)
         if self.timbre_enabled and self.rng.random() < self.timbre_prob:
             output = self._apply_timbre_mask(output)
 
+        # Normalize if clipping
         max_abs = output.abs().max()
         if torch.isfinite(max_abs).item() and max_abs.item() > 1.0:
             output = output / max_abs
@@ -121,18 +192,14 @@ class SpeakerObfuscationAugmenter:
         return output.detach().cpu().numpy().astype(np.float32, copy=False)
 
     def _build_spectral_effects(self) -> list[list[str]]:
-        """Create random narrowband attenuation and optional cutoff effects."""
-
         effects: list[list[str]] = []
 
         n_notches = int(self.rng.integers(self.notches_min, self.notches_max + 1))
-        for _ in range(max(0, n_notches)):
+        for _ in range(n_notches):
             center = float(self.rng.uniform(self.center_freq_min, self.center_freq_max))
             q_value = float(self.rng.uniform(self.q_min, self.q_max))
             attenuation = float(self.rng.uniform(self.attenuation_db_min, self.attenuation_db_max))
-            effects.append(
-                ["equalizer", f"{center:.2f}", f"{q_value:.2f}q", f"{attenuation:.2f}"]
-            )
+            effects.append(["equalizer", f"{center:.2f}", f"{q_value:.2f}q", f"{attenuation:.2f}"])
 
         if self.rng.random() < self.highpass_prob:
             hp_hz = float(self.rng.uniform(self.highpass_min_hz, self.highpass_max_hz))
@@ -146,26 +213,14 @@ class SpeakerObfuscationAugmenter:
         return effects
 
     def _apply_sox_effects(self, waveform: torch.Tensor, effects: list[list[str]]) -> torch.Tensor:
-        """Apply a SoX chain; fall back silently if SoX backend is unavailable."""
-
-        if not effects or not self._sox_available or apply_effects_tensor is None:
+        """STRICT: Apply SoX chain; raise on failure."""
+        if not effects:
             return waveform
-
-        try:
-            augmented, _ = apply_effects_tensor(waveform, self.sampling_rate, effects)
-        except Exception as exc:  # pragma: no cover - backend-dependent.
-            self._sox_available = False
-            warnings.warn(
-                f"SoX effects are unavailable in this torchaudio build ({exc}). "
-                "Continuing without SoX-based augmentation.",
-                RuntimeWarning,
-            )
-            return waveform
+        augmented, _ = apply_effects_tensor(waveform, self.sampling_rate, effects)
         return augmented
 
     def _apply_timbre_mask(self, waveform: torch.Tensor) -> torch.Tensor:
         """Mask spectro-temporal bands in STFT magnitude and reconstruct signal."""
-
         if waveform.numel() < self.n_fft:
             return waveform
         if self._freq_mask is None and self._time_mask is None:
@@ -197,7 +252,8 @@ class SpeakerObfuscationAugmenter:
             length=waveform.shape[-1],
         )
         if torch.isnan(reconstructed).any():
-            return waveform
+            # STRICT: raise instead of silently returning original
+            raise RuntimeError("NaNs produced during ISTFT reconstruction in timbre masking.")
         return reconstructed
 
 
@@ -206,22 +262,26 @@ def build_speaker_obfuscation_augmenter(
     sampling_rate: int,
     seed: int,
 ) -> SpeakerObfuscationAugmenter | None:
-    """Return configured speaker-obfuscation augmenter or `None` if disabled."""
+    """Return configured speaker-obfuscation augmenter or None if disabled.
 
-    aug_cfg = dict(get_nested(config, "augmentation", {}) or {})
-    if not bool(aug_cfg.get("enabled", False)):
+    STRICT: if augmentation section exists but has wrong types, raise.
+    """
+
+    aug_cfg = get_nested(config, "augmentation")
+    if aug_cfg is None:
         return None
+    if not isinstance(aug_cfg, dict):
+        raise TypeError(f"config.augmentation must be a dict, got {type(aug_cfg)}")
 
-    if not TORCHAUDIO_AVAILABLE:
-        warnings.warn(
-            "augmentation.enabled=true but torchaudio is unavailable. "
-            "Install torchaudio to enable Task 2 audio augmentation.",
-            RuntimeWarning,
-        )
+    enabled = aug_cfg.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise TypeError(f"augmentation.enabled must be boolean, got {type(enabled)}")
+
+    if not enabled:
         return None
 
     return SpeakerObfuscationAugmenter(
         config=aug_cfg,
-        sampling_rate=sampling_rate,
-        seed=seed,
+        sampling_rate=int(sampling_rate),
+        seed=int(seed),
     )

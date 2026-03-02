@@ -21,7 +21,7 @@ from transformers import AutoFeatureExtractor, set_seed
 from config_utils import get_nested, load_yaml, merge_dicts, parse_overrides, save_json
 from dataset_utils import prepare_encoded_datasets
 from model_utils import build_audio_classification_model, count_parameters
-from tracking_utils import maybe_login_hf, setup_wandb
+from tracking_utils import setup_hf, setup_wandb
 from trainer_utils import AudioDataCollator, build_trainer, build_training_arguments
 
 
@@ -57,21 +57,22 @@ def main() -> None:
     set_seed(seed)
 
     # Optional authentication setup.
-    maybe_login_hf(config)
+    use_hf = setup_hf(config)
     use_wandb = setup_wandb(config)
 
-    # Build run identity and output directory for this execution.
+    # --------------------------------- CREATE UNIQUE RUNNAME ---------------------------------
+    # Build run identity and output directory for this execution -> Example: 20260301_201530
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Strict configuration: Keys MUST exist in the YAML.
-    # We fetch the exact values provided in the config without arbitrary fallbacks.
+
+    # Fetch the run name value provided in the config.
     base_run_name = str(get_nested(config, "run_name"))
     if not base_run_name:
          raise ValueError("Config file must specify 'run_name'.")
 
-    # Create unique run ID by appending timestamp to the configured name
+    # Create unique run ID by appending timestamp to the configured name -> Example: mms300m_baseline_20260301_201530
     run_id = f"{base_run_name}_{timestamp}"
-    
+    # -----------------------------------------------------------------------------------------
+
     # 1. Output Directory
     base_output_dir = str(get_nested(config, "output_dir"))
     if not base_output_dir:
@@ -94,18 +95,20 @@ def main() -> None:
     # Persist the fully resolved config for exact reproducibility.
     save_json(output_dir / "resolved_config.json", config)
 
-    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
-    dataset_id = str(get_nested(config, "data.dataset_id", "badrex/nnti-dataset-full"))
+    model_id = str(get_nested(config, "model.id"))
+    dataset_id = str(get_nested(config, "data.dataset_id"))
 
-    print(f"Using config: {args.config}")
-    print(f"Model: {model_id}")
-    print(f"Dataset: {dataset_id}")
-    print(f"W&B enabled: {use_wandb}")
-    print(f"CUDA available: {torch.cuda.is_available()}")
+    print(f"Running experiment {run_id} with the given details:")
+    print(f"- Using config: {args.config}")
+    print(f"- Model: {model_id}")
+    print(f"- Dataset: {dataset_id}")
+    print(f"- HF enabled: {use_hf}")
+    print(f"- W&B enabled: {use_wandb}")
+    print(f"- CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name()}")
-    elif bool(get_nested(config, "training.fp16", False)) or bool(get_nested(config, "training.bf16", False)):
-        print("Mixed precision requested but CUDA is unavailable. fp16/bf16 will be disabled automatically.")
+    elif bool(get_nested(config, "training.fp16")) or bool(get_nested(config, "training.bf16")):
+        print("Mixed precision requested but CUDA is unavailable. fp16/bf16 will be disabled.")
 
     # Load feature extractor first; data preprocessing depends on its expected input.
     feature_extractor = AutoFeatureExtractor.from_pretrained(
@@ -181,7 +184,7 @@ def main() -> None:
         print(f"Confusion matrix saved to: {output_dir / 'confusion_matrix.json'}")
 
     # Save model weights and feature extractor for inference/reuse.
-    model_dir = Path(str(get_nested(config, "save_dir", output_dir / "model")))
+    model_dir = Path(str(get_nested(config, "save_dir")))
     model_dir.mkdir(parents=True, exist_ok=True)
     trainer.save_model(str(model_dir))
     feature_extractor.save_pretrained(str(model_dir))

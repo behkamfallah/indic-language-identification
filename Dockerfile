@@ -12,8 +12,9 @@ RUN apt-get update \
         python3-venv \
         ffmpeg \
         libsndfile1 \
+        libsox-dev sox \
         git \
-    && rm -rf /var/lib/apt/lists/*
+        && rm -rf /var/lib/apt/lists/*
 
 # Ensure python/pip commands point to Python 3
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 \
@@ -23,9 +24,9 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 \
 WORKDIR /app
 
 # Copy dependency list and install (uses cu118 wheels)
-COPY cuda_requirements.txt ./
+COPY requirements_cuda.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r cuda_requirements.txt
+    && pip install --no-cache-dir -r requirements_cuda.txt
 
 # Copy the project code
 COPY . .

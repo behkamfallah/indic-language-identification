@@ -30,7 +30,7 @@ save_dir: ./models
 seed: 42
 
 data:
-  # Hugging Face dataset ID.
+  # Hugging Face dataset ID -> Link: https://huggingface.co/datasets/badrex/nnti-dataset-full
   dataset_id: badrex/nnti-dataset-full
 
   # Dataset split names to use for training and validation.

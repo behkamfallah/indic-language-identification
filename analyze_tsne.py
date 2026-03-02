@@ -89,7 +89,7 @@ def main() -> None:
     set_seed(args.seed)
 
     # Load feature extractor from the fine-tuned directory if available; fallback to model.id
-    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
+    model_id = str(get_nested(config, "model.id"))
     try:
         feature_extractor = AutoFeatureExtractor.from_pretrained(str(args.model_dir), return_attention_mask=True)
     except Exception:
@@ -113,8 +113,8 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    speaker_col = str(get_nested(config, "data.speaker_column", "speaker_id"))
-    lang_col = str(get_nested(config, "data.label_column", "language"))
+    speaker_col = str(get_nested(config, "data.speaker_column"))
+    lang_col = str(get_nested(config, "data.label_column"))
 
     all_embs: list[np.ndarray] = []
     all_speakers: list[str] = []

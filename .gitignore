@@ -3,6 +3,7 @@
 __pycache__/
 outputs/
 .vscode/
+.ipynb_checkpoints
 models/
 wandb/
 
