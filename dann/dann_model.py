@@ -95,6 +95,29 @@ class DANNForAudioClassification(nn.Module):
     def set_grl_lambda(self, lambd: float) -> None:
         self.grl.set_lambda(lambd)
 
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None) -> None:
+        """Proxy HF Trainer gradient-checkpointing calls to the wrapped model."""
+        if not hasattr(self.base, "gradient_checkpointing_enable"):
+            raise AttributeError(
+                f"Wrapped model {type(self.base).__name__} does not support gradient checkpointing."
+            )
+
+        try:
+            self.base.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs=gradient_checkpointing_kwargs
+            )
+        except TypeError:
+            # Backward compatibility with transformers versions that do not take kwargs.
+            self.base.gradient_checkpointing_enable()
+
+    def gradient_checkpointing_disable(self) -> None:
+        if hasattr(self.base, "gradient_checkpointing_disable"):
+            self.base.gradient_checkpointing_disable()
+
+    @property
+    def is_gradient_checkpointing(self) -> bool:
+        return bool(getattr(self.base, "is_gradient_checkpointing", False))
+
     def _build_feature_mask(
         self,
         feature_length: int,
