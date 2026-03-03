@@ -1,4 +1,4 @@
-run_name: task2_speaker_obfuscation_mms300m_tuned
+run_name: task2_speaker_obfuscation_mms300m_timbre_only
 output_dir: ./outputs
 save_dir: ./models
 seed: 42
@@ -54,32 +54,14 @@ augmentation:
   apply_prob: 1.0
 
   pitch:
-    enabled: true
-    prob: 1.0
-    cents_min: -280.0
-    cents_max: 280.0
+    enabled: false
 
   spectral:
     enabled: false
-    prob: 1.0
-    notches_min: 1
-    notches_max: 3
-    center_freq_min: 250.0
-    center_freq_max: 3800.0
-    q_min: 0.8
-    q_max: 2.2
-    attenuation_db_min: -18.0
-    attenuation_db_max: -6.0
-    highpass_prob: 0.25
-    highpass_min_hz: 70.0
-    highpass_max_hz: 250.0
-    lowpass_prob: 0.25
-    lowpass_min_hz: 2800.0
-    lowpass_max_hz: 7000.0
 
   timbre_mask:
     enabled: true
-    prob: 0.8
+    prob: 0.7
     n_fft: 400
     hop_length: 160
     win_length: 400
@@ -89,6 +71,6 @@ augmentation:
 tracking:
   use_wandb: true
   wandb_project: Indic-SLID
-  wandb_run_name: task2_speaker_obfuscation_mms300m_tuned
+  wandb_run_name: task2_speaker_obfuscation_mms300m_timbre
   hf_token_env: HF_TOKEN
   wandb_api_key_env: WANDB_API_KEY

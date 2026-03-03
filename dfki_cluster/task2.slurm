@@ -51,5 +51,5 @@ print("SoX OK", y.shape, sr)
 PY
 
     cd /app
-    python train_model.py --config configs/task2_ablation2_timbre_pitch_spectral.yaml
+    python train_model.py --config configs/task2_ablation1_timbre.yaml
   '
