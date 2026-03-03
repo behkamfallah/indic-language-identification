@@ -43,7 +43,7 @@ training:
   gradient_checkpointing: true
   dataloader_num_workers: 4
   push_to_hub: false
-  group_by_length: false
+  group_by_length: true
 
 tracking:
   use_wandb: true
