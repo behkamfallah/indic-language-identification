@@ -20,11 +20,22 @@ class AudioDataCollator:
 
     We rely on the model's feature extractor to pad inputs so behavior remains
     consistent with the underlying architecture.
+
+    Args:
+        keys_to_remove: Optional list of keys to drop from the padded batch
+            before returning (e.g. ``["attention_mask"]`` for models whose
+            ``forward()`` does not accept that argument).
     """
 
-    def __init__(self, feature_extractor: AutoFeatureExtractor, model_input_name: str):
+    def __init__(
+        self,
+        feature_extractor: AutoFeatureExtractor,
+        model_input_name: str,
+        keys_to_remove: List[str] | None = None,
+    ):
         self.feature_extractor = feature_extractor
         self.model_input_name = model_input_name
+        self._keys_to_remove: set = set(keys_to_remove or [])
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         batch: Dict[str, Any] = {
@@ -38,6 +49,11 @@ class AudioDataCollator:
             padding=True,
             return_tensors="pt",
         )
+
+        # Drop keys unsupported by the model's forward() to avoid TypeError.
+        for key in self._keys_to_remove:
+            padded.pop(key, None)
+
         padded["labels"] = torch.tensor([item["label"] for item in features], dtype=torch.long)
         return padded
 

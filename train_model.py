@@ -136,9 +136,18 @@ def main() -> None:
 
     # Build Trainer components.
     training_args = build_training_arguments(config, output_dir=output_dir, run_name=run_id)
+
+    # Some models (e.g. WhisperForAudioClassification) do not accept
+    # `attention_mask` in their forward() even though the feature extractor
+    # produces it.  Detect this at runtime so other configs keep working.
+    import inspect as _inspect
+    _model_fwd_params = _inspect.signature(model.forward).parameters
+    _collator_remove_keys = [k for k in ("attention_mask",) if k not in _model_fwd_params]
+
     data_collator = AudioDataCollator(
         feature_extractor=feature_extractor,
         model_input_name=prepared_data.model_input_name,
+        keys_to_remove=_collator_remove_keys or None,
     )
     trainer = build_trainer(
         model=model,
