@@ -182,6 +182,8 @@ def main() -> None:
     model_dir = Path(str(get_nested(config, "save_dir")))
     model_dir.mkdir(parents=True, exist_ok=True)
     trainer.save_model(str(model_dir))
+    if hasattr(trainer.model, "save_pretrained"):
+        trainer.model.save_pretrained(str(model_dir))
     feature_extractor.save_pretrained(str(model_dir))
 
     save_json(

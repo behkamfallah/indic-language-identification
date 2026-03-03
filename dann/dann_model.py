@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import torch
 from torch import nn
 from transformers import AutoConfig, AutoModelForAudioClassification
+from transformers.utils import SAFE_WEIGHTS_NAME, WEIGHTS_NAME
 from transformers.utils import ModelOutput
 
 try:
@@ -83,6 +86,12 @@ class DANNForAudioClassification(nn.Module):
             nn.ReLU(),
             nn.Linear(int(speaker_head_hidden), int(num_speakers)),
         )
+        self._dann_meta = {
+            "pooling": pooling,
+            "speaker_head_hidden": int(speaker_head_hidden),
+            "num_speakers": int(num_speakers),
+            "grl_lambda": float(grl_lambda),
+        }
 
     @staticmethod
     def _infer_hidden_size(cfg: Any) -> int:
@@ -94,6 +103,48 @@ class DANNForAudioClassification(nn.Module):
 
     def set_grl_lambda(self, lambd: float) -> None:
         self.grl.set_lambda(lambd)
+
+    @property
+    def config(self):
+        return self.base.config
+
+    def num_parameters(self, only_trainable: bool = False, exclude_embeddings: bool = False) -> int:
+        del exclude_embeddings
+        if only_trainable:
+            return sum(p.numel() for p in self.parameters() if p.requires_grad)
+        return sum(p.numel() for p in self.parameters())
+
+    def save_pretrained(
+        self,
+        save_directory: str | Path,
+        state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        safe_serialization: bool = True,
+        **kwargs: Any,
+    ) -> None:
+        """HF-compatible save used by W&B callback and external tooling."""
+        del kwargs
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+
+        if state_dict is None:
+            state_dict = self.state_dict()
+
+        self.base.config.save_pretrained(str(save_directory))
+        with (save_directory / "dann_config.json").open("w", encoding="utf-8") as handle:
+            json.dump(self._dann_meta, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+        if safe_serialization:
+            try:
+                from safetensors.torch import save_file as safe_save_file
+
+                safe_save_file(state_dict, str(save_directory / SAFE_WEIGHTS_NAME), metadata={"format": "pt"})
+                return
+            except Exception:
+                # Fall back to PyTorch serialization if safetensors is unavailable.
+                pass
+
+        torch.save(state_dict, save_directory / WEIGHTS_NAME)
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None) -> None:
         """Proxy HF Trainer gradient-checkpointing calls to the wrapped model."""
