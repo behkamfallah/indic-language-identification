@@ -86,18 +86,35 @@ def prepare_encoded_datasets(
     model_input_name = feature_extractor.model_input_names[0]
     max_length = int(sampling_rate * max_duration_seconds)
 
+    # Whisper's feature extractor (WhisperFeatureExtractor) always needs input
+    # padded to exactly n_samples (480 000 for 16 kHz = 30 s) to produce the
+    # fixed-length mel spectrogram (3000 frames) the model expects.
+    # For all other models we keep the existing truncation-only behaviour and
+    # leave padding to the AudioDataCollator.
+    _whisper_style = hasattr(feature_extractor, "n_samples")
+    _fe_pad_to = feature_extractor.n_samples if _whisper_style else None
+
     def preprocess(examples: Dict[str, Any]) -> Dict[str, Any]:
         """Convert raw audio arrays into padded/truncated model features."""
 
-        audio_arrays = [sample["array"] for sample in examples[audio_column]]
+        # Always truncate to the configured max duration first.
+        audio_arrays = [
+            sample["array"][:max_length] for sample in examples[audio_column]
+        ]
 
-        encoded = feature_extractor(
-            audio_arrays,
-            sampling_rate=sampling_rate,
-            truncation=True,
-            max_length=max_length,
-            return_attention_mask=True,
-        )
+        fe_kwargs: Dict[str, Any] = {
+            "sampling_rate": sampling_rate,
+            "truncation": True,
+            "return_attention_mask": True,
+        }
+        if _fe_pad_to is not None:
+            # Pad to the model's native fixed length (e.g. 30 s for Whisper).
+            fe_kwargs["padding"] = "max_length"
+            fe_kwargs["max_length"] = _fe_pad_to
+        else:
+            fe_kwargs["max_length"] = max_length
+
+        encoded = feature_extractor(audio_arrays, **fe_kwargs)
 
         # Convert string labels into numeric class IDs.
         encoded["label"] = [label2id[label] for label in examples[label_column]]
