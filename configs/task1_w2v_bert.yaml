@@ -30,9 +30,9 @@ training:
   weight_decay: 0.01
   lr_scheduler_type: cosine
   eval_strategy: steps
-  eval_steps: 50
+  eval_steps: 200
   save_strategy: steps
-  save_steps: 50
+  save_steps: 200
   logging_steps: 10
   save_total_limit: 3
   load_best_model_at_end: true
@@ -46,7 +46,7 @@ training:
   group_by_length: false
 
 tracking:
-  use_wandb: false
+  use_wandb: true
   wandb_project: Indic-SLID
   wandb_run_name: task1_w2v_bert
   hf_token_env: HF_TOKEN
