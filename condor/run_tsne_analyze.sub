@@ -14,6 +14,4 @@ requirements = (TARGET.Name =!= "teaching1@uller.hpc.uni-saarland.de")
 +WantGPUHomeMounted = true
 queue script_name, config_name from (
   analyze_tsne_minimal.py task1_baseline_mms300m.yaml
-  analyze_tsne_minimal.py task1_w2v_bert.yaml 
-  analyze_tsne_minimal.py task1_commented_reference.yaml
-)
+  )
