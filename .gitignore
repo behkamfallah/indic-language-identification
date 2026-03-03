@@ -1,5 +1,6 @@
 .venv
 .idea
+.wandb_api_key
 __pycache__/
 outputs/
 .vscode/
