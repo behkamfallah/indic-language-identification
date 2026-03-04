@@ -17,6 +17,7 @@ import numpy as np
 from datasets import Audio, load_dataset
 from transformers import AutoFeatureExtractor
 
+from augmentation_utils import build_augmentor
 from config_utils import get_nested
 
 
@@ -80,6 +81,11 @@ def prepare_encoded_datasets(
     label2id = {label: idx for idx, label in enumerate(labels)}
     id2label = {idx: label for label, idx in label2id.items()}
 
+    # Build waveform augmentor (None when augmentation is disabled in config).
+    augmentor = build_augmentor(config, seed=seed)
+    if augmentor is not None:
+        print("Waveform augmentation enabled for training split.")
+
     # Keep only lightweight metadata columns after mapping to reduce memory.
     keep_cols = [col for col in [speaker_column, label_column] if col in train_ds.column_names]
 
@@ -94,13 +100,23 @@ def prepare_encoded_datasets(
     _whisper_style = hasattr(feature_extractor, "n_samples")
     _fe_pad_to = feature_extractor.n_samples if _whisper_style else None
 
-    def preprocess(examples: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert raw audio arrays into padded/truncated model features."""
+    def preprocess(examples: Dict[str, Any], apply_augmentation: bool = False) -> Dict[str, Any]:
+        """Convert raw audio arrays into padded/truncated model features.
+
+        Args:
+            apply_augmentation: When True and an augmentor is configured,
+                waveform augmentations are applied before feature extraction.
+                Always False for the eval split.
+        """
 
         # Always truncate to the configured max duration first.
         audio_arrays = [
             sample["array"][:max_length] for sample in examples[audio_column]
         ]
+
+        # Apply waveform augmentations to the training split only.
+        if apply_augmentation and augmentor is not None:
+            audio_arrays = augmentor.augment_batch(audio_arrays)
 
         fe_kwargs: Dict[str, Any] = {
             "sampling_rate": sampling_rate,
@@ -129,12 +145,14 @@ def prepare_encoded_datasets(
         remove_columns=[col for col in train_ds.column_names if col not in keep_cols],
         batched=True,
         batch_size=map_batch_size,
+        fn_kwargs={"apply_augmentation": augmentor is not None},
     )
     eval_encoded = eval_ds.map(
         preprocess,
         remove_columns=[col for col in eval_ds.column_names if col not in keep_cols],
         batched=True,
         batch_size=map_batch_size,
+        fn_kwargs={"apply_augmentation": False},
     )
 
     return PreparedDatasets(

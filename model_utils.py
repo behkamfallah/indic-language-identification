@@ -46,6 +46,25 @@ def build_audio_classification_model(
             if hasattr(model_config, attribute):
                 setattr(model_config, attribute, dropout_value)
 
+    # SpecAugment: time + frequency masking applied inside the model during
+    # training (model.training=True). Supported natively by wav2vec2/MMS
+    # configs via mask_time_prob / mask_feature_prob attributes.
+    spec_aug_cfg = config.get("augmentation", {}).get("spec_augment", {})
+    if spec_aug_cfg.get("enabled", False):
+        _spec_map = {
+            "mask_time_prob": float(spec_aug_cfg.get("mask_time_prob", 0.05)),
+            "mask_time_length": int(spec_aug_cfg.get("mask_time_length", 10)),
+            "mask_feature_prob": float(spec_aug_cfg.get("mask_feature_prob", 0.004)),
+            "mask_feature_length": int(spec_aug_cfg.get("mask_feature_length", 10)),
+        }
+        for attr, val in _spec_map.items():
+            if hasattr(model_config, attr):
+                setattr(model_config, attr, val)
+        print(
+            f"SpecAugment enabled: mask_time_prob={_spec_map['mask_time_prob']}, "
+            f"mask_feature_prob={_spec_map['mask_feature_prob']}"
+        )
+
     model = AutoModelForAudioClassification.from_pretrained(
         model_id,
         config=model_config,
