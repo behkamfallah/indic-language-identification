@@ -27,6 +27,8 @@ pip install -r cuda_requirements.txt (cuda based)
 - `configs/task1_w2v_bert.yaml`: alternate pre-trained model experiment
 - `configs/task2_speaker_obfuscation.yaml`: Task 2 config with speaker-bias mitigation augmentations
 - `configs/task1_commented_reference.yaml`: fully documented config with inline explanations for each field
+- `dann/`: standalone domain-adversarial training pipeline for Task 2
+- `fourier/`: standalone Fourier-domain augmentation training pipeline for Task 2
 - `docs/file_function_relationships.md`: Mermaid diagram of file/function dependencies
 - `docs/training_execution_flow.md`: Mermaid diagram of runtime execution flow
 
@@ -58,6 +60,12 @@ python train_model.py --config configs/task2_speaker_obfuscation.yaml
 
 Task 2 augmentations are controlled by the `augmentation` section in YAML.
 All Task 1 configs keep this section disabled by default, so baseline behavior remains unchanged.
+
+## Run Task 2 Experiment (Fourier-Domain Augmentation)
+
+```bash
+python3 fourier/train_fourier.py --config fourier/task2_fourier_mms300m.yaml
+```
 
 ## Optional Runtime Overrides
 

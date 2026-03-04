@@ -16,6 +16,9 @@ evaluate==0.4.2
 
 # Utilities
 numpy==1.26.4
+scikit-learn==1.5.2
 PyYAML==6.0.1
 soundfile==0.12.1
 wandb==0.17.0
+
+scikit-learn~=1.8.0

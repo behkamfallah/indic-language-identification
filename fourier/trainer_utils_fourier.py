@@ -1,35 +1,25 @@
-"""Trainer utilities for DANN task-2 training."""
+"""Trainer utilities for Fourier-domain training."""
 
 from __future__ import annotations
 
 import inspect
-import math
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import evaluate
 import numpy as np
 import torch
 from sklearn.metrics import precision_recall_fscore_support
-from torch import nn
 from transformers import AutoFeatureExtractor, Trainer, TrainingArguments
 
 try:
-    from .config_utils_dann import get_nested
+    from .config_utils_fourier import get_nested
 except ImportError:  # Script-mode execution
-    from config_utils_dann import get_nested
+    from config_utils_fourier import get_nested
 
 
-@dataclass
-class DANNConfig:
-    alpha: float = 0.1
-    grl_max_lambda: float = 1.0
-    grl_schedule: str = "dann"  # "dann" or "constant"
-
-
-class AudioDataCollatorWithSpeaker:
-    """Pad variable-length audio and attach language + speaker labels."""
+class AudioDataCollatorFourier:
+    """Pad variable-length audio features and attach class labels."""
 
     def __init__(self, feature_extractor: AutoFeatureExtractor, model_input_name: str):
         self.feature_extractor = feature_extractor
@@ -48,62 +38,7 @@ class AudioDataCollatorWithSpeaker:
             return_tensors="pt",
         )
         padded["labels"] = torch.tensor([item["label"] for item in features], dtype=torch.long)
-        padded["speaker_labels"] = torch.tensor([item["speaker_label"] for item in features], dtype=torch.long)
         return padded
-
-
-class DANNTrainer(Trainer):
-    """Trainer with custom combined loss for DANN."""
-
-    def __init__(self, *args, dann_cfg: Optional[DANNConfig] = None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.dann_cfg = dann_cfg or DANNConfig()
-        self.ce = nn.CrossEntropyLoss()
-        # Keep evaluation labels tied to the language task only.
-        self.label_names = ["labels"]
-
-    def _max_steps(self) -> int:
-        if getattr(self.state, "max_steps", 0) and self.state.max_steps > 0:
-            return int(self.state.max_steps)
-        if getattr(self.args, "max_steps", 0) and self.args.max_steps > 0:
-            return int(self.args.max_steps)
-        return 1
-
-    def _grl_lambda(self) -> float:
-        schedule = str(self.dann_cfg.grl_schedule).lower()
-        if schedule == "constant":
-            return float(self.dann_cfg.grl_max_lambda)
-        if schedule != "dann":
-            raise ValueError("dann.grl_schedule must be 'dann' or 'constant'.")
-
-        step = int(getattr(self.state, "global_step", 0))
-        max_steps = max(1, self._max_steps())
-        p = min(1.0, step / max_steps)
-        return float(2.0 / (1.0 + math.exp(-10.0 * p)) - 1.0) * float(self.dann_cfg.grl_max_lambda)
-
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        del num_items_in_batch
-
-        labels = inputs.pop("labels")
-        speaker_labels = inputs.pop("speaker_labels")
-
-        lambd = self._grl_lambda()
-        if hasattr(model, "set_grl_lambda"):
-            model.set_grl_lambda(lambd)
-
-        outputs = model(**inputs)
-        lang_logits = outputs.logits
-        speaker_logits = outputs.speaker_logits
-
-        loss_lang = self.ce(lang_logits, labels)
-        loss_spk = self.ce(speaker_logits, speaker_labels)
-        loss = loss_lang + float(self.dann_cfg.alpha) * loss_spk
-
-        outputs.loss = loss
-
-        if return_outputs:
-            return loss, outputs
-        return loss
 
 
 def build_training_arguments(config: Dict[str, Any], output_dir: Path, run_name: str) -> TrainingArguments:
@@ -160,16 +95,15 @@ def build_training_arguments(config: Dict[str, Any], output_dir: Path, run_name:
     return TrainingArguments(**kwargs)
 
 
-def build_dann_trainer(
+def build_fourier_trainer(
     model: Any,
     training_args: TrainingArguments,
     train_dataset: Any,
     eval_dataset: Any,
-    data_collator: AudioDataCollatorWithSpeaker,
+    data_collator: AudioDataCollatorFourier,
     feature_extractor: AutoFeatureExtractor,
-    dann_cfg: Optional[DANNConfig] = None,
-) -> DANNTrainer:
-    """Create DANNTrainer with language metrics on main logits."""
+) -> Trainer:
+    """Create a Hugging Face Trainer with accuracy/precision/recall/F1."""
 
     accuracy_metric = evaluate.load("accuracy")
 
@@ -205,7 +139,6 @@ def build_dann_trainer(
         "eval_dataset": eval_dataset,
         "data_collator": data_collator,
         "compute_metrics": compute_metrics,
-        "dann_cfg": dann_cfg,
     }
 
     trainer_signature = inspect.signature(Trainer.__init__).parameters
@@ -214,4 +147,4 @@ def build_dann_trainer(
     else:
         trainer_kwargs["tokenizer"] = feature_extractor
 
-    return DANNTrainer(**trainer_kwargs)
+    return Trainer(**trainer_kwargs)

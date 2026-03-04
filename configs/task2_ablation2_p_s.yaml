@@ -1,4 +1,4 @@
-run_name: task2_dann_mms300m
+run_name: task2_spectral_only
 output_dir: ./outputs
 save_dir: ./models
 seed: 42
@@ -36,8 +36,6 @@ training:
   eval_steps: 100
   save_strategy: steps
   save_steps: 100
-  save_only_model: true
-  save_safetensors: true
   logging_steps: 10
   save_total_limit: 3
   load_best_model_at_end: true
@@ -51,22 +49,40 @@ training:
   group_by_length: false
 
 augmentation:
-  enabled: false
+  enabled: true
   train_only: true
+  apply_prob: 1.0
 
-# DANN-specific knobs
-dann:
-  alpha: 0.7
-  grl_max_lambda: 1.0
-  grl_schedule: dann
-  pooling: mean
-  speaker_head_hidden: 256
-  unknown_speaker_bucket: true
-  unknown_speaker_token: <unk_speaker>
+  pitch:
+    enabled: true
+    prob: 0.7
+    cents_min: -350.0
+    cents_max: 350.0
+
+  spectral:
+    enabled: true
+    prob: 0.7
+    notches_min: 2
+    notches_max: 4
+    center_freq_min: 200.0
+    center_freq_max: 4500.0
+    q_min: 0.7
+    q_max: 2.5
+    attenuation_db_min: -20.0
+    attenuation_db_max: -8.0
+    highpass_prob: 0.4
+    highpass_min_hz: 80.0
+    highpass_max_hz: 300.0
+    lowpass_prob: 0.4
+    lowpass_min_hz: 2500.0
+    lowpass_max_hz: 6500.0
+
+  timbre_mask:
+    enabled: false
 
 tracking:
   use_wandb: true
   wandb_project: huggingface
-  wandb_run_name: task2_dann_mms300m
+  wandb_run_name: task2_speaker_obfuscation_mms300m_spectral
   hf_token_env: HF_TOKEN
   wandb_api_key_env: WANDB_API_KEY
