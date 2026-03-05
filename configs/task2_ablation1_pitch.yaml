@@ -20,7 +20,7 @@ data:
 model:
   id: facebook/mms-300m
   apply_dropout: false
-  dropout: 0.1
+  dropout: 0
   freeze_feature_encoder: false
 
 training:

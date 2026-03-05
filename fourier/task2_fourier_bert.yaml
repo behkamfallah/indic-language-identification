@@ -1,4 +1,4 @@
-run_name: task2_speaker_timbre_only
+run_name: task2_fourier_bert
 output_dir: ./outputs
 save_dir: ./models
 seed: 42
@@ -11,16 +11,16 @@ data:
   label_column: language
   speaker_column: speaker_id
   sampling_rate: 16000
-  max_duration_seconds: 8.0
+  max_duration_seconds: 7.0
   preprocessing_batch_size: 16
   preprocessing_keep_in_memory: true
   preprocessing_load_from_cache_file: false
   preprocessing_writer_batch_size: 16
 
 model:
-  id: facebook/mms-300m
+  id: facebook/w2v-bert-2.0
   apply_dropout: false
-  dropout: 0.1
+  dropout: 0
   freeze_feature_encoder: false
 
 training:
@@ -28,7 +28,7 @@ training:
   eval_batch_size: 8
   gradient_accumulation_steps: 2
   num_train_epochs: 8
-  learning_rate: 1.0e-5
+  learning_rate: 2.0e-5
   warmup_ratio: 0.1
   weight_decay: 0.01
   lr_scheduler_type: linear
@@ -36,6 +36,8 @@ training:
   eval_steps: 100
   save_strategy: steps
   save_steps: 100
+  save_only_model: true
+  save_safetensors: true
   logging_steps: 10
   save_total_limit: 3
   load_best_model_at_end: true
@@ -48,29 +50,36 @@ training:
   push_to_hub: false
   group_by_length: false
 
-augmentation:
+# Fourier-domain perturbation controls.
+fourier:
   enabled: true
   train_only: true
-  apply_prob: 1.0
+  apply_prob: 0.6
 
-  pitch:
-    enabled: false
+  magnitude_dropout_prob: 0.7
+  magnitude_dropout_bands_min: 1
+  magnitude_dropout_bands_max: 2
+  magnitude_dropout_width_min: 0.05
+  magnitude_dropout_width_max: 0.20
+  magnitude_dropout_attenuation_min: 0.0
+  magnitude_dropout_attenuation_max: 0.7
 
-  spectral:
-    enabled: false
+  phase_noise_prob: 0.3
+  phase_noise_std: 0.05
 
-  timbre_mask:
-    enabled: true
-    prob: 0.7
-    n_fft: 400
-    hop_length: 160
-    win_length: 400
-    freq_mask_param: 24
-    time_mask_param: 30
+  highpass_prob: 0.25
+  highpass_min_hz: 40
+  highpass_max_hz: 150
+
+  lowpass_prob: 0.25
+  lowpass_min_hz: 3500
+  lowpass_max_hz: 6000
+
+  filter_floor: 0.05
 
 tracking:
   use_wandb: true
-  wandb_project: Indic-SLID
-  wandb_run_name: task2_speaker_obfuscation_mms300m_timbre
+  wandb_project: huggingface
+  wandb_run_name: task2_fourier_bert
   hf_token_env: HF_TOKEN
   wandb_api_key_env: WANDB_API_KEY

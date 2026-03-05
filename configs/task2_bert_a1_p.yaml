@@ -1,4 +1,4 @@
-run_name: task2_speaker_timbre_only
+run_name: task2_bert_pitch_only
 output_dir: ./outputs
 save_dir: ./models
 seed: 42
@@ -11,16 +11,16 @@ data:
   label_column: language
   speaker_column: speaker_id
   sampling_rate: 16000
-  max_duration_seconds: 8.0
+  max_duration_seconds: 7.0
   preprocessing_batch_size: 16
   preprocessing_keep_in_memory: true
   preprocessing_load_from_cache_file: false
   preprocessing_writer_batch_size: 16
 
 model:
-  id: facebook/mms-300m
+  id: facebook/w2v-bert-2.0
   apply_dropout: false
-  dropout: 0.1
+  dropout: 0
   freeze_feature_encoder: false
 
 training:
@@ -28,7 +28,7 @@ training:
   eval_batch_size: 8
   gradient_accumulation_steps: 2
   num_train_epochs: 8
-  learning_rate: 1.0e-5
+  learning_rate: 2.0e-5
   warmup_ratio: 0.1
   weight_decay: 0.01
   lr_scheduler_type: linear
@@ -54,23 +54,20 @@ augmentation:
   apply_prob: 1.0
 
   pitch:
-    enabled: false
+    enabled: true
+    prob: 0.7
+    cents_min: -350.0
+    cents_max: 350.0
 
   spectral:
     enabled: false
 
   timbre_mask:
-    enabled: true
-    prob: 0.7
-    n_fft: 400
-    hop_length: 160
-    win_length: 400
-    freq_mask_param: 24
-    time_mask_param: 30
+    enabled: false
 
 tracking:
   use_wandb: true
-  wandb_project: Indic-SLID
-  wandb_run_name: task2_speaker_obfuscation_mms300m_timbre
+  wandb_project: huggingface
+  wandb_run_name: task2_bert_pitch_only
   hf_token_env: HF_TOKEN
   wandb_api_key_env: WANDB_API_KEY
