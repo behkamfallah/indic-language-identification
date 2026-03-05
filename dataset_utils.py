@@ -63,7 +63,15 @@ def prepare_encoded_datasets(
     sampling_rate = int(get_nested(config, "data.sampling_rate"))
     max_duration_seconds = float(get_nested(config, "data.max_duration_seconds"))
     map_batch_size = int(get_nested(config, "data.preprocessing_batch_size"))
-    augment_train_only = bool(get_nested(config, "augmentation.train_only"))
+    aug_cfg = config.get("augmentation", {})
+    if aug_cfg is None:
+        aug_cfg = {}
+    if not isinstance(aug_cfg, dict):
+        raise TypeError(f"config.augmentation must be a dict, got {type(aug_cfg)}")
+    raw_augment_train_only = aug_cfg.get("train_only", True)
+    if not isinstance(raw_augment_train_only, bool):
+        raise TypeError("augmentation.train_only must be boolean")
+    augment_train_only = raw_augment_train_only
 
     dataset = load_dataset(dataset_id)
     train_ds = dataset[train_split_name].shuffle(seed=seed)

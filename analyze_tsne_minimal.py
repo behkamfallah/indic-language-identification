@@ -24,6 +24,7 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
+from tqdm.auto import tqdm
 from transformers import (
     AutoConfig,
     AutoFeatureExtractor,
@@ -71,11 +72,41 @@ def plot_points(
 
     labels_arr = np.array(labels)
     unique_labels = sorted(set(labels))
+    marker_cycle = [
+        "o", "s", "^", "v", "D", "P", "X", "*", "<", ">",
+        "h", "H", "p", "8", "d",
+        (3, 0, 0), (4, 0, 45), (5, 0, 0), (6, 0, 0), (7, 0, 0), (8, 0, 0), (9, 0, 0),
+    ]
+    color_pool: list[tuple[float, float, float, float]] = []
+    for cmap_name in ("tab20", "tab20b", "tab20c"):
+        cmap = plt.get_cmap(cmap_name)
+        colors = getattr(cmap, "colors", None)
+        if colors is None:
+            colors = [cmap(i / 19.0) for i in range(20)]
+        color_pool.extend(list(colors))
+
+    style_map: dict[str, tuple[tuple[float, float, float, float], object]] = {}
+    for idx, lab in enumerate(unique_labels):
+        style_map[lab] = (
+            color_pool[idx % len(color_pool)],
+            marker_cycle[idx % len(marker_cycle)],
+        )
 
     # Plot each group separately so matplotlib can build a legend.
     for lab in unique_labels:
         idx = labels_arr == lab
-        plt.scatter(xy[idx, 0], xy[idx, 1], s=10, alpha=0.7, label=lab)
+        color, marker = style_map[lab]
+        plt.scatter(
+            xy[idx, 0],
+            xy[idx, 1],
+            s=16,
+            alpha=0.8,
+            c=[color],
+            marker=marker,
+            linewidths=0.2,
+            edgecolors="black",
+            label=lab,
+        )
 
     plt.title(title)
     plt.xlabel("t-SNE dim 1")
@@ -231,7 +262,13 @@ def main() -> None:
 
 
     # Manual batching keeps the code minimal and avoids Trainer usage.
-    for start in range(0, len(ds), args.batch_size):
+    total_batches = (len(ds) + args.batch_size - 1) // args.batch_size
+    for start in tqdm(
+        range(0, len(ds), args.batch_size),
+        total=total_batches,
+        desc="Extracting embeddings",
+        unit="batch",
+    ):
         # Grab a slice of items (each item is a dict).
         items = [ds[i] for i in range(start, min(start + args.batch_size, len(ds)))]
 
@@ -299,6 +336,7 @@ def main() -> None:
         title=f"t-SNE (last layer) colored by speaker [{args.split}]",
         out_png=output_dir / "tsne_by_speaker.png",
         max_legend_items=50,  # speakers can be many; keep legend sane
+        legend=True,
     )
 
     print(f"Done. Saved to: {output_dir.resolve()}")

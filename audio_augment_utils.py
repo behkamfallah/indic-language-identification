@@ -13,8 +13,6 @@ from typing import Any, Dict
 import numpy as np
 import torch
 
-from config_utils import get_nested
-
 from torchaudio.sox_effects import apply_effects_tensor
 from torchaudio.transforms import FrequencyMasking, TimeMasking
 
@@ -267,7 +265,7 @@ def build_speaker_obfuscation_augmenter(
     STRICT: if augmentation section exists but has wrong types, raise.
     """
 
-    aug_cfg = get_nested(config, "augmentation")
+    aug_cfg = config.get("augmentation")
     if aug_cfg is None:
         return None
     if not isinstance(aug_cfg, dict):
