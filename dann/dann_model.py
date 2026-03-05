@@ -71,6 +71,7 @@ class DANNForAudioClassification(nn.Module):
             config=cfg,
             ignore_mismatched_sizes=True,
         )
+        self.main_input_name = str(getattr(self.base, "main_input_name", "input_values"))
 
         if freeze_feature_encoder:
             if hasattr(self.base, "freeze_feature_encoder"):
@@ -214,7 +215,8 @@ class DANNForAudioClassification(nn.Module):
 
     def forward(
         self,
-        input_values: torch.Tensor,
+        input_values: Optional[torch.Tensor] = None,
+        input_features: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         speaker_labels: Optional[torch.Tensor] = None,
@@ -222,8 +224,34 @@ class DANNForAudioClassification(nn.Module):
     ) -> DANNOutputs:
         del labels, speaker_labels
 
+        # Accept both waveform (`input_values`) and feature (`input_features`) models.
+        primary_input = input_values
+        primary_key = "input_values"
+        if primary_input is None and input_features is not None:
+            primary_input = input_features
+            primary_key = "input_features"
+
+        if primary_input is None:
+            if self.main_input_name in kwargs:
+                primary_input = kwargs.pop(self.main_input_name)
+                primary_key = self.main_input_name
+            elif "input_values" in kwargs:
+                primary_input = kwargs.pop("input_values")
+                primary_key = "input_values"
+            elif "input_features" in kwargs:
+                primary_input = kwargs.pop("input_features")
+                primary_key = "input_features"
+
+        if primary_input is None:
+            raise TypeError(
+                "DANNForAudioClassification.forward expected one of "
+                f"'{self.main_input_name}', 'input_values', or 'input_features'."
+            )
+
+        model_inputs = {primary_key: primary_input}
+
         outputs = self.base(
-            input_values=input_values,
+            **model_inputs,
             attention_mask=attention_mask,
             labels=None,
             output_hidden_states=True,
