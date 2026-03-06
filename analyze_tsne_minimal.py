@@ -58,7 +58,7 @@ def plot_points(
     title: str,
     out_png: Path,
     max_legend_items: int = 40,
-    legend: bool = False,
+    legend: bool = True,
 ) -> None:
     """
     Scatter-plot 2D points and color by label.
