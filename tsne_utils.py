@@ -80,6 +80,7 @@ class TsneRunPaths:
     plot_by_speaker_png: Path | str = "tsne_by_speaker.png"
     plot_by_knn_label_png: Path | str = "tsne_by_knn_label.png"
     plot_by_kmeans_png: Path | str = "tsne_by_kmeans.png"
+    plot_by_kmeans_majority_compatibility_png: Path | str = "tsne_by_kmeans_majority_compatibility.png"
     metadata_csv: Path | str = "metadata_tsne.csv"
     report_txt: Path | str = "report.txt"
     split_dirs: dict[str, Path] = field(default_factory=dict)
@@ -102,6 +103,28 @@ def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tenso
     return summed / denom
 
 
+def _build_style_map(unique_labels: list[str]) -> dict[str, tuple[Any, str]]:
+    """Map each label to a visually distinct (color, marker) style."""
+    markers = ["o", "s", "^", "D", "P", "X", "v", "<", ">", "*", "h", "H", "p", "8"]
+    cmaps = ["tab20", "tab20b", "tab20c", "Set3", "Dark2", "Set1", "Set2", "Accent", "Paired"]
+    colors: list[Any] = []
+    for cmap_name in cmaps:
+        cmap = plt.get_cmap(cmap_name)
+        for idx in range(cmap.N):
+            colors.append(cmap(idx))
+
+    if not colors:
+        colors = ["C0"]
+
+    styles: dict[str, tuple[Any, str]] = {}
+    n_colors = len(colors)
+    for i, label in enumerate(unique_labels):
+        color = colors[i % n_colors]
+        marker = markers[(i // n_colors) % len(markers)]
+        styles[label] = (color, marker)
+    return styles
+
+
 def plot_points(
     xy: np.ndarray,
     labels: list[str],
@@ -111,17 +134,26 @@ def plot_points(
     legend: bool = True,
     show: bool = True,
 ) -> None:
-    """Scatter-plot 2D points and color by label.
-
-    If show=True, will display in notebooks (plt.show()).
-    """
+    """Scatter-plot 2D points and color/shape by label."""
     plt.figure(figsize=(10, 8))
     labels_arr = np.array(labels)
     unique_labels = sorted(set(labels))
+    style_map = _build_style_map(unique_labels)
 
     for lab in unique_labels:
         idx = labels_arr == lab
-        plt.scatter(xy[idx, 0], xy[idx, 1], s=10, alpha=0.7, label=lab)
+        color, marker = style_map[lab]
+        plt.scatter(
+            xy[idx, 0],
+            xy[idx, 1],
+            s=16,
+            alpha=0.75,
+            color=color,
+            marker=marker,
+            linewidths=0.3,
+            edgecolors="black",
+            label=lab,
+        )
 
     plt.title(title)
     plt.xlabel("t-SNE dim 1")
@@ -133,7 +165,75 @@ def plot_points(
             n_cols = 2
         if len(unique_labels) > max_legend_items * 2:
             n_cols = 3
-        plt.legend(markerscale=2, fontsize=8, loc="best", ncol=n_cols)
+        plt.legend(markerscale=1.6, fontsize=7, loc="best", ncol=n_cols)
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    if show:
+        plt.show()
+    plt.close()
+
+
+def plot_kmeans_majority_compatibility(
+    xy: np.ndarray,
+    cluster_named_labels: list[str],
+    incompatible_mask: np.ndarray,
+    title: str,
+    out_png: Path,
+    max_legend_items: int = 40,
+    legend: bool = True,
+    show: bool = True,
+) -> None:
+    """Plot cluster-majority compatibility; incompatible points are always red."""
+    plt.figure(figsize=(10, 8))
+    labels_arr = np.array(cluster_named_labels)
+    incompatible = np.asarray(incompatible_mask, dtype=bool)
+
+    compatible_labels = labels_arr[~incompatible].tolist()
+    unique_compatible = sorted(set(compatible_labels))
+    style_map = _build_style_map(unique_compatible)
+
+    for lab in unique_compatible:
+        idx = (labels_arr == lab) & (~incompatible)
+        color, marker = style_map[lab]
+        plt.scatter(
+            xy[idx, 0],
+            xy[idx, 1],
+            s=16,
+            alpha=0.75,
+            color=color,
+            marker=marker,
+            linewidths=0.3,
+            edgecolors="black",
+            label=lab,
+        )
+
+    if incompatible.any():
+        plt.scatter(
+            xy[incompatible, 0],
+            xy[incompatible, 1],
+            s=26,
+            alpha=0.95,
+            color="red",
+            marker="X",
+            linewidths=0.5,
+            edgecolors="black",
+            label="INCOMPATIBLE (label != cluster majority)",
+        )
+
+    plt.title(title)
+    plt.xlabel("t-SNE dim 1")
+    plt.ylabel("t-SNE dim 2")
+
+    if legend:
+        n_cols = 1
+        total_items = len(unique_compatible) + (1 if incompatible.any() else 0)
+        if total_items > max_legend_items:
+            n_cols = 2
+        if total_items > max_legend_items * 2:
+            n_cols = 3
+        plt.legend(markerscale=1.6, fontsize=7, loc="best", ncol=n_cols)
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
@@ -406,6 +506,22 @@ def run_tsne_analysis(
         kmeans_path = split_dir / "kmeans_labels.npy"
         np.save(kmeans_path, kmeans_cluster_ids)
 
+        # Name each cluster by its majority ground-truth label.
+        labels_str = df["label"].astype(str)
+        ctab_majority = pd.crosstab(pd.Series(kmeans_cluster_ids, name="cluster_id"), labels_str)
+        majority_by_cluster: dict[int, str] = {}
+        for cluster_id, row in ctab_majority.iterrows():
+            row_sorted = row.sort_values(ascending=False)
+            majority_label = str(row_sorted.index[0]) if len(row_sorted.index) > 0 else "NA"
+            majority_by_cluster[int(cluster_id)] = majority_label
+
+        cluster_majority_labels = [majority_by_cluster[int(cid)] for cid in kmeans_cluster_ids.tolist()]
+        cluster_named = [
+            f"{majority_by_cluster[int(cid)]} (c{int(cid):02d})"
+            for cid in kmeans_cluster_ids.tolist()
+        ]
+        incompatible_mask = labels_str.values != np.asarray(cluster_majority_labels, dtype=str)
+
         # Save t-SNE coords + metadata for easy plotting/comparison
         df_tsne = df.copy()
         df_tsne["tsne_x"] = X2[:, 0]
@@ -413,7 +529,9 @@ def run_tsne_analysis(
         df_tsne["knn_pred_label"] = label_preds.astype(str)
         df_tsne["knn_pred_speaker"] = speaker_preds.astype(str)
         df_tsne["kmeans_cluster_id"] = kmeans_cluster_ids.astype(int)
-        df_tsne["kmeans_cluster"] = [f"cluster_{int(cid):02d}" for cid in kmeans_cluster_ids.tolist()]
+        df_tsne["kmeans_cluster_majority_label"] = cluster_majority_labels
+        df_tsne["kmeans_cluster"] = cluster_named
+        df_tsne["kmeans_majority_compatible"] = ~incompatible_mask
         metadata_tsne_path = split_dir / "metadata_tsne.csv"
         df_tsne.to_csv(metadata_tsne_path, index=False)
 
@@ -422,6 +540,7 @@ def run_tsne_analysis(
         plot_by_speaker_png = split_dir / "tsne_by_speaker.png"
         plot_by_knn_label_png = split_dir / "tsne_by_knn_label.png"
         plot_by_kmeans_png = split_dir / "tsne_by_kmeans.png"
+        plot_by_kmeans_majority_compatibility_png = split_dir / "tsne_by_kmeans_majority_compatibility.png"
         plot_points(
             X2,
             df["label"].astype(str).tolist(),
@@ -455,6 +574,15 @@ def run_tsne_analysis(
             legend=legend,
             show=show_plots,
         )
+        plot_kmeans_majority_compatibility(
+            X2,
+            df_tsne["kmeans_cluster"].astype(str).tolist(),
+            incompatible_mask=incompatible_mask,
+            title=f"t-SNE by KMeans majority compatibility [{split_name}] ({exp.tag})",
+            out_png=plot_by_kmeans_majority_compatibility_png,
+            legend=legend,
+            show=show_plots,
+        )
 
         cluster_counts = df_tsne["kmeans_cluster"].value_counts().sort_index()
         top_labels_lines: list[str] = []
@@ -480,6 +608,8 @@ def run_tsne_analysis(
             f"kmeans_k_requested: {kmeans_k}",
             f"kmeans_k_effective: {len(np.unique(kmeans_cluster_ids))}",
             f"kmeans_inertia: {kmeans_inertia:.4f}",
+            f"kmeans_majority_incompatible_count: {int(incompatible_mask.sum())}",
+            f"kmeans_majority_incompatible_rate: {(float(incompatible_mask.mean()) * 100.0):.2f}%",
             "",
             "kmeans_cluster_counts:",
         ]
@@ -498,6 +628,8 @@ def run_tsne_analysis(
             "knn_acc_speaker": float(speaker_acc),
             "kmeans_k_effective": int(len(np.unique(kmeans_cluster_ids))),
             "kmeans_inertia": float(kmeans_inertia),
+            "kmeans_majority_incompatible_count": int(incompatible_mask.sum()),
+            "kmeans_majority_incompatible_rate": float(incompatible_mask.mean()),
         }
         split_artifacts[split_name] = {
             "metadata_csv": metadata_tsne_path,
@@ -508,6 +640,7 @@ def run_tsne_analysis(
             "plot_by_speaker_png": plot_by_speaker_png,
             "plot_by_knn_label_png": plot_by_knn_label_png,
             "plot_by_kmeans_png": plot_by_kmeans_png,
+            "plot_by_kmeans_majority_compatibility_png": plot_by_kmeans_majority_compatibility_png,
         }
 
     if out_dir is None:
@@ -541,6 +674,8 @@ def run_tsne_analysis(
                 f"knn_acc_speaker: {m['knn_acc_speaker']:.4f}",
                 f"kmeans_k_effective: {m['kmeans_k_effective']}",
                 f"kmeans_inertia: {m['kmeans_inertia']:.4f}",
+                f"kmeans_majority_incompatible_count: {m['kmeans_majority_incompatible_count']}",
+                f"kmeans_majority_incompatible_rate: {(m['kmeans_majority_incompatible_rate'] * 100.0):.2f}%",
                 "",
             ]
         )
@@ -558,6 +693,7 @@ def run_tsne_analysis(
         plot_by_speaker_png=rep["plot_by_speaker_png"],
         plot_by_knn_label_png=rep["plot_by_knn_label_png"],
         plot_by_kmeans_png=rep["plot_by_kmeans_png"],
+        plot_by_kmeans_majority_compatibility_png=rep["plot_by_kmeans_majority_compatibility_png"],
         report_txt=summary_report_path,
         split_dirs=split_dirs,
         split_reports=split_reports,
