@@ -59,6 +59,7 @@ class TsneExp:
     max_items: int = 2000
     batch_size: int = 32
     seed: int = 42
+    require_gpu: bool = False
 
     # Output naming
     tag: str = "default"  # used as a subfolder under tsne_analysis/
@@ -89,6 +90,19 @@ class TsneRunPaths:
     report_txt: Path | str = "report.txt"
     split_dirs: dict[str, Path] = field(default_factory=dict)
     split_reports: dict[str, Path] = field(default_factory=dict)
+
+
+@dataclass
+class _TsneRuntime:
+    """Heavy runtime objects shared across split runs."""
+
+    out_dir: Path
+    prepared_ds: Any
+    collator: AudioDataCollator
+    model: Any
+    device: torch.device
+    speaker_col: str
+    label_col: str
 
 
 def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -473,15 +487,8 @@ def _resolve_config_and_paths(exp: TsneExp) -> Tuple[Dict[str, Any], Path, str, 
     return config, model_dir, run_id, out_dir, model_id
 
 
-def extract_embeddings_and_metadata(
-    exp: TsneExp,
-    split: str,
-    show_plots: bool = False,
-) -> Tuple[np.ndarray, pd.DataFrame, Path]:
-    """Extract last-layer pooled embeddings and associated metadata.
-
-    Returns: (X, df, out_dir)
-    """
+def _build_runtime(exp: TsneExp) -> _TsneRuntime:
+    """Build reusable runtime state once (dataset/model/device) for all splits."""
     set_seed(exp.seed)
     config, model_dir, _run_id, out_dir, model_id = _resolve_config_and_paths(exp)
 
@@ -502,15 +509,6 @@ def extract_embeddings_and_metadata(
         feature_extractor=feature_extractor,
         seed=exp.seed,
     )
-    if split == "train":
-        ds = prepared_ds.train_dataset
-    elif split == "eval":
-        ds = prepared_ds.eval_dataset
-    else:
-        raise ValueError(f"Unsupported split '{split}'. Expected one of: train, eval.")
-    n = min(len(ds), exp.max_items)
-    ds = ds.select(range(n))
-
     collator = AudioDataCollator(
         feature_extractor=feature_extractor,
         model_input_name=prepared_ds.model_input_name,
@@ -522,11 +520,57 @@ def extract_embeddings_and_metadata(
     model = AutoModelForAudioClassification.from_pretrained(str(model_dir), config=cfg)
     model.eval()
 
+    if exp.require_gpu and not torch.cuda.is_available():
+        raise RuntimeError(
+            "GPU was requested (--require_gpu) but CUDA is not available. "
+            "Check cluster GPU allocation, Docker runtime, and CUDA-enabled PyTorch."
+        )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
+    print(f"[t-SNE] Using device for embedding extraction: {device}")
+    if device.type == "cuda":
+        try:
+            print(f"[t-SNE] CUDA device: {torch.cuda.get_device_name(0)}")
+        except Exception:
+            pass
+    print(
+        "[t-SNE] Note: sklearn t-SNE/KMeans/kNN probes still run on CPU; "
+        "only transformer embedding extraction runs on GPU."
+    )
+
     speaker_col = str(get_nested(config, "data.speaker_column"))
     label_col = str(get_nested(config, "data.label_column"))
+    return _TsneRuntime(
+        out_dir=out_dir,
+        prepared_ds=prepared_ds,
+        collator=collator,
+        model=model,
+        device=device,
+        speaker_col=speaker_col,
+        label_col=label_col,
+    )
+
+
+def extract_embeddings_and_metadata(
+    exp: TsneExp,
+    split: str,
+    runtime: Optional[_TsneRuntime] = None,
+) -> Tuple[np.ndarray, pd.DataFrame, Path]:
+    """Extract last-layer pooled embeddings and associated metadata.
+
+    Returns: (X, df, out_dir)
+    """
+    rt = runtime if runtime is not None else _build_runtime(exp)
+    out_dir = rt.out_dir
+    if split == "train":
+        ds = rt.prepared_ds.train_dataset
+    elif split == "eval":
+        ds = rt.prepared_ds.eval_dataset
+    else:
+        raise ValueError(f"Unsupported split '{split}'. Expected one of: train, eval.")
+    n = min(len(ds), exp.max_items)
+    ds = ds.select(range(n))
 
     embs: list[np.ndarray] = []
     speakers: list[str] = []
@@ -542,14 +586,14 @@ def extract_embeddings_and_metadata(
     ):
         items = [ds[i] for i in range(start, min(start + exp.batch_size, len(ds)))]
 
-        speakers.extend([str(it.get(speaker_col, "NA")) for it in items])
-        labels.extend([str(it.get(label_col, "NA")) for it in items])
+        speakers.extend([str(it.get(rt.speaker_col, "NA")) for it in items])
+        labels.extend([str(it.get(rt.label_col, "NA")) for it in items])
 
-        batch = collator(items) # because speech segment lengths can vary, we need to collate them into a batch with padding
-        batch = {k: v.to(device) for k, v in batch.items()}
+        batch = rt.collator(items) # because speech segment lengths can vary, we need to collate them into a batch with padding
+        batch = {k: v.to(rt.device) for k, v in batch.items()}
 
         with torch.no_grad():
-            out = model(**batch, output_hidden_states=True, return_dict=True)
+            out = rt.model(**batch, output_hidden_states=True, return_dict=True)
 
         last_hidden = out.hidden_states[-1]
         attn = batch.get("attention_mask", None) # (B, T), where mask = 1 for real samples, 0 for padding.
@@ -560,8 +604,8 @@ def extract_embeddings_and_metadata(
                 # Try common backbone locations for wav2vec2-style models
                 backbone = None
                 for attr in ["wav2vec2", "model", "hubert", "mms"]:
-                    if hasattr(model, attr):
-                        backbone = getattr(model, attr)
+                    if hasattr(rt.model, attr):
+                        backbone = getattr(rt.model, attr)
                         break
 
                 if backbone is not None:
@@ -586,17 +630,17 @@ def run_tsne_analysis(
     legend: bool = True,
 ) -> TsneRunPaths:
     """End-to-end for all splits: embeddings -> t-SNE -> kNN -> KMeans -> plots -> reports."""
+    runtime = _build_runtime(exp)
     legend = True
     split_names = ["train", "eval"]
-    out_dir: Optional[Path] = None
+    out_dir: Path = runtime.out_dir
     split_dirs: dict[str, Path] = {}
     split_reports: dict[str, Path] = {}
     split_metrics: dict[str, dict[str, float | int]] = {}
     split_artifacts: dict[str, dict[str, Path]] = {}
 
     for split_name in split_names:
-        X, df, resolved_out_dir = extract_embeddings_and_metadata(exp, split=split_name)
-        out_dir = resolved_out_dir
+        X, df, _ = extract_embeddings_and_metadata(exp, split=split_name, runtime=runtime)
 
         split_dir = out_dir / split_name
         split_dir.mkdir(parents=True, exist_ok=True)
@@ -822,9 +866,6 @@ def run_tsne_analysis(
             "plot_by_kmeans_majority_compatibility_alpha30_png": plot_by_kmeans_majority_compatibility_alpha30_png,
             "plot_by_kmeans_majority_blue_red_annotated_png": plot_by_kmeans_majority_blue_red_annotated_png,
         }
-
-    if out_dir is None:
-        raise RuntimeError("Failed to resolve output directory for t-SNE analysis.")
 
     # Root summary report (keeps compare helper compatible via knn_acc_* lines from eval split)
     summary_report_path = out_dir / "report.txt"

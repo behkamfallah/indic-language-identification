@@ -54,6 +54,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max_items", type=int, default=2000)
     ap.add_argument("--batch_size", type=int, default=8)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--require_gpu", action="store_true", help="Fail fast if CUDA is not available.")
     ap.add_argument("--tag", type=str, default="default", help="Subfolder name under tsne_analysis/")
     ap.add_argument("--knn_k", type=int, default=5)
     ap.add_argument(
@@ -101,6 +102,7 @@ def main() -> None:
         max_items=args.max_items,
         batch_size=args.batch_size,
         seed=args.seed,
+        require_gpu=args.require_gpu,
         tag=args.tag,
         knn_k=args.knn_k,
         kmeans_k=args.kmeans_k,
