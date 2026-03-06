@@ -84,6 +84,7 @@ class TsneRunPaths:
     plot_by_kmeans_majority_compatibility_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha50.png"
     plot_by_kmeans_majority_compatibility_alpha70_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha70.png"
     plot_by_kmeans_majority_compatibility_alpha30_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha30.png"
+    plot_by_kmeans_majority_blue_red_annotated_png: Path | str = "tsne_by_kmeans_majority_blue_red_annotated.png"
     metadata_csv: Path | str = "metadata_tsne.csv"
     report_txt: Path | str = "report.txt"
     split_dirs: dict[str, Path] = field(default_factory=dict)
@@ -274,6 +275,103 @@ def plot_kmeans_majority_compatibility(
             n_cols = 3
         plt.legend(markerscale=1.6, fontsize=7, loc="best", ncol=n_cols)
 
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    if show:
+        plt.show()
+    plt.close()
+
+
+def plot_kmeans_majority_blue_red_annotated(
+    xy: np.ndarray,
+    cluster_named_labels: list[str],
+    incompatible_mask: np.ndarray,
+    title: str,
+    out_png: Path,
+    show: bool = True,
+) -> None:
+    """Plot with uniform blue points and red incompatible points; annotate clusters inline."""
+    plt.figure(figsize=(10, 8))
+    labels_arr = np.array(cluster_named_labels)
+    incompatible = np.asarray(incompatible_mask, dtype=bool)
+    compatible = ~incompatible
+
+    # Base layer: compatible points in one blue color.
+    if compatible.any():
+        plt.scatter(
+            xy[compatible, 0],
+            xy[compatible, 1],
+            s=16,
+            alpha=0.78,
+            color="#1f77b4",
+            marker="o",
+            linewidths=0.2,
+            edgecolors="black",
+        )
+
+    # Incompatible points in semi-transparent red, as requested.
+    if incompatible.any():
+        plt.scatter(
+            xy[incompatible, 0],
+            xy[incompatible, 1],
+            s=26,
+            alpha=0.30,
+            color="red",
+            marker="X",
+            linewidths=0.45,
+            edgecolors="black",
+        )
+
+    # Place cluster names near each cluster centroid (no legend).
+    unique_clusters = sorted(set(cluster_named_labels))
+    global_center = xy.mean(axis=0)
+    x_span = max(float(xy[:, 0].max() - xy[:, 0].min()), 1e-8)
+    y_span = max(float(xy[:, 1].max() - xy[:, 1].min()), 1e-8)
+    base_offset = 0.02 * np.sqrt(x_span * x_span + y_span * y_span)
+
+    for cluster_name in unique_clusters:
+        idx = labels_arr == cluster_name
+        pts = xy[idx]
+        if len(pts) == 0:
+            continue
+        centroid = pts.mean(axis=0)
+        direction = centroid - global_center
+        norm = float(np.linalg.norm(direction))
+        if norm < 1e-8:
+            direction = np.array([1.0, 0.0], dtype=float)
+        else:
+            direction = direction / norm
+        spread = float(np.std(pts, axis=0).mean())
+        offset = direction * (base_offset + 0.25 * spread)
+        label_pos = centroid + offset
+
+        plt.plot(
+            [centroid[0], label_pos[0]],
+            [centroid[1], label_pos[1]],
+            color="#334155",
+            linewidth=0.5,
+            alpha=0.7,
+        )
+        plt.text(
+            label_pos[0],
+            label_pos[1],
+            cluster_name,
+            fontsize=7,
+            ha="center",
+            va="center",
+            color="#111827",
+            bbox={
+                "boxstyle": "round,pad=0.20",
+                "facecolor": "white",
+                "edgecolor": "#334155",
+                "alpha": 0.78,
+            },
+        )
+
+    plt.title(title)
+    plt.xlabel("t-SNE dim 1")
+    plt.ylabel("t-SNE dim 2")
     out_png.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
     plt.savefig(out_png, dpi=200)
@@ -588,6 +686,9 @@ def run_tsne_analysis(
         plot_by_kmeans_majority_compatibility_alpha30_png = (
             split_dir / "tsne_by_kmeans_majority_compatibility_alpha30.png"
         )
+        plot_by_kmeans_majority_blue_red_annotated_png = (
+            split_dir / "tsne_by_kmeans_majority_blue_red_annotated.png"
+        )
         plot_points(
             X2,
             df["label"].astype(str).tolist(),
@@ -651,6 +752,14 @@ def run_tsne_analysis(
             legend=legend,
             show=show_plots,
         )
+        plot_kmeans_majority_blue_red_annotated(
+            X2,
+            df_tsne["kmeans_cluster"].astype(str).tolist(),
+            incompatible_mask=incompatible_mask,
+            title=f"t-SNE by KMeans majority (blue correct, red wrong 30%) [{split_name}] ({exp.tag})",
+            out_png=plot_by_kmeans_majority_blue_red_annotated_png,
+            show=show_plots,
+        )
 
         cluster_counts = df_tsne["kmeans_cluster"].value_counts().sort_index()
         top_labels_lines: list[str] = []
@@ -711,6 +820,7 @@ def run_tsne_analysis(
             "plot_by_kmeans_majority_compatibility_png": plot_by_kmeans_majority_compatibility_png,
             "plot_by_kmeans_majority_compatibility_alpha70_png": plot_by_kmeans_majority_compatibility_alpha70_png,
             "plot_by_kmeans_majority_compatibility_alpha30_png": plot_by_kmeans_majority_compatibility_alpha30_png,
+            "plot_by_kmeans_majority_blue_red_annotated_png": plot_by_kmeans_majority_blue_red_annotated_png,
         }
 
     if out_dir is None:
@@ -766,6 +876,7 @@ def run_tsne_analysis(
         plot_by_kmeans_majority_compatibility_png=rep["plot_by_kmeans_majority_compatibility_png"],
         plot_by_kmeans_majority_compatibility_alpha70_png=rep["plot_by_kmeans_majority_compatibility_alpha70_png"],
         plot_by_kmeans_majority_compatibility_alpha30_png=rep["plot_by_kmeans_majority_compatibility_alpha30_png"],
+        plot_by_kmeans_majority_blue_red_annotated_png=rep["plot_by_kmeans_majority_blue_red_annotated_png"],
         report_txt=summary_report_path,
         split_dirs=split_dirs,
         split_reports=split_reports,
