@@ -80,7 +80,9 @@ class TsneRunPaths:
     plot_by_speaker_png: Path | str = "tsne_by_speaker.png"
     plot_by_knn_label_png: Path | str = "tsne_by_knn_label.png"
     plot_by_kmeans_png: Path | str = "tsne_by_kmeans.png"
-    plot_by_kmeans_majority_compatibility_png: Path | str = "tsne_by_kmeans_majority_compatibility.png"
+    plot_by_kmeans_majority_compatibility_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha50.png"
+    plot_by_kmeans_majority_compatibility_alpha70_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha70.png"
+    plot_by_kmeans_majority_compatibility_alpha30_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha30.png"
     metadata_csv: Path | str = "metadata_tsne.csv"
     report_txt: Path | str = "report.txt"
     split_dirs: dict[str, Path] = field(default_factory=dict)
@@ -181,6 +183,7 @@ def plot_kmeans_majority_compatibility(
     incompatible_mask: np.ndarray,
     title: str,
     out_png: Path,
+    incompatible_alpha: float = 0.50,
     max_legend_items: int = 40,
     legend: bool = True,
     show: bool = True,
@@ -214,7 +217,7 @@ def plot_kmeans_majority_compatibility(
             xy[incompatible, 0],
             xy[incompatible, 1],
             s=26,
-            alpha=0.95,
+            alpha=float(incompatible_alpha),
             color="red",
             marker="X",
             linewidths=0.5,
@@ -540,7 +543,15 @@ def run_tsne_analysis(
         plot_by_speaker_png = split_dir / "tsne_by_speaker.png"
         plot_by_knn_label_png = split_dir / "tsne_by_knn_label.png"
         plot_by_kmeans_png = split_dir / "tsne_by_kmeans.png"
-        plot_by_kmeans_majority_compatibility_png = split_dir / "tsne_by_kmeans_majority_compatibility.png"
+        plot_by_kmeans_majority_compatibility_alpha70_png = (
+            split_dir / "tsne_by_kmeans_majority_compatibility_alpha70.png"
+        )
+        plot_by_kmeans_majority_compatibility_png = (
+            split_dir / "tsne_by_kmeans_majority_compatibility_alpha50.png"
+        )
+        plot_by_kmeans_majority_compatibility_alpha30_png = (
+            split_dir / "tsne_by_kmeans_majority_compatibility_alpha30.png"
+        )
         plot_points(
             X2,
             df["label"].astype(str).tolist(),
@@ -578,8 +589,29 @@ def run_tsne_analysis(
             X2,
             df_tsne["kmeans_cluster"].astype(str).tolist(),
             incompatible_mask=incompatible_mask,
-            title=f"t-SNE by KMeans majority compatibility [{split_name}] ({exp.tag})",
+            title=f"t-SNE by KMeans majority compatibility (alpha=0.70) [{split_name}] ({exp.tag})",
+            out_png=plot_by_kmeans_majority_compatibility_alpha70_png,
+            incompatible_alpha=0.70,
+            legend=legend,
+            show=show_plots,
+        )
+        plot_kmeans_majority_compatibility(
+            X2,
+            df_tsne["kmeans_cluster"].astype(str).tolist(),
+            incompatible_mask=incompatible_mask,
+            title=f"t-SNE by KMeans majority compatibility (alpha=0.50) [{split_name}] ({exp.tag})",
             out_png=plot_by_kmeans_majority_compatibility_png,
+            incompatible_alpha=0.50,
+            legend=legend,
+            show=show_plots,
+        )
+        plot_kmeans_majority_compatibility(
+            X2,
+            df_tsne["kmeans_cluster"].astype(str).tolist(),
+            incompatible_mask=incompatible_mask,
+            title=f"t-SNE by KMeans majority compatibility (alpha=0.30) [{split_name}] ({exp.tag})",
+            out_png=plot_by_kmeans_majority_compatibility_alpha30_png,
+            incompatible_alpha=0.30,
             legend=legend,
             show=show_plots,
         )
@@ -641,6 +673,8 @@ def run_tsne_analysis(
             "plot_by_knn_label_png": plot_by_knn_label_png,
             "plot_by_kmeans_png": plot_by_kmeans_png,
             "plot_by_kmeans_majority_compatibility_png": plot_by_kmeans_majority_compatibility_png,
+            "plot_by_kmeans_majority_compatibility_alpha70_png": plot_by_kmeans_majority_compatibility_alpha70_png,
+            "plot_by_kmeans_majority_compatibility_alpha30_png": plot_by_kmeans_majority_compatibility_alpha30_png,
         }
 
     if out_dir is None:
@@ -694,6 +728,8 @@ def run_tsne_analysis(
         plot_by_knn_label_png=rep["plot_by_knn_label_png"],
         plot_by_kmeans_png=rep["plot_by_kmeans_png"],
         plot_by_kmeans_majority_compatibility_png=rep["plot_by_kmeans_majority_compatibility_png"],
+        plot_by_kmeans_majority_compatibility_alpha70_png=rep["plot_by_kmeans_majority_compatibility_alpha70_png"],
+        plot_by_kmeans_majority_compatibility_alpha30_png=rep["plot_by_kmeans_majority_compatibility_alpha30_png"],
         report_txt=summary_report_path,
         split_dirs=split_dirs,
         split_reports=split_reports,

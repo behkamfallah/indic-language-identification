@@ -110,7 +110,12 @@ def main() -> None:
     paths = run_tsne_analysis(exp, show_plots=args.show_plots)
     print(f"Done. Saved to: {paths.out_dir.resolve()}")
     print(f"Summary report: {paths.report_txt.name}")
-    print(f"Representative KMeans-majority plot: {Path(paths.plot_by_kmeans_majority_compatibility_png).name}")
+    print(
+        "Representative KMeans-majority plots: "
+        f"{Path(paths.plot_by_kmeans_majority_compatibility_alpha70_png).name}, "
+        f"{Path(paths.plot_by_kmeans_majority_compatibility_png).name}, "
+        f"{Path(paths.plot_by_kmeans_majority_compatibility_alpha30_png).name}"
+    )
     for split_name, split_dir in paths.split_dirs.items():
         print(f"[{split_name}] dir: {split_dir.resolve()}")
     for split_name, split_report in paths.split_reports.items():
