@@ -116,10 +116,6 @@ def main() -> None:
         f"{Path(paths.plot_by_kmeans_majority_compatibility_png).name}, "
         f"{Path(paths.plot_by_kmeans_majority_compatibility_alpha30_png).name}"
     )
-    print(
-        "Representative KMeans-majority blue/red annotated plot: "
-        f"{Path(paths.plot_by_kmeans_majority_blue_red_annotated_png).name}"
-    )
     for split_name, split_dir in paths.split_dirs.items():
         print(f"[{split_name}] dir: {split_dir.resolve()}")
     for split_name, split_report in paths.split_reports.items():

@@ -84,28 +84,10 @@ class TsneRunPaths:
     plot_by_kmeans_majority_compatibility_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha50.png"
     plot_by_kmeans_majority_compatibility_alpha70_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha70.png"
     plot_by_kmeans_majority_compatibility_alpha30_png: Path | str = "tsne_by_kmeans_majority_compatibility_alpha30.png"
-    plot_by_kmeans_majority_blue_red_annotated_png: Path | str = "tsne_by_kmeans_majority_blue_red_annotated.png"
     metadata_csv: Path | str = "metadata_tsne.csv"
     report_txt: Path | str = "report.txt"
     split_dirs: dict[str, Path] = field(default_factory=dict)
     split_reports: dict[str, Path] = field(default_factory=dict)
-
-
-@dataclass
-class _TsneRuntime:
-    """Runtime objects reused across splits to avoid repeated heavy setup."""
-
-    config: Dict[str, Any]
-    out_dir: Path
-    model_dir: Path
-    model_id: str
-    feature_extractor: Any
-    prepared_ds: Any
-    collator: AudioDataCollator
-    model: Any
-    device: torch.device
-    speaker_col: str
-    label_col: str
 
 
 def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -300,7 +282,7 @@ def plot_kmeans_majority_compatibility(
     plt.close()
 
 
-def plot_kmeans_majority_blue_red_annotated(
+def plot_kmeans_uniform_with_mismatch_marks(
     xy: np.ndarray,
     cluster_named_labels: list[str],
     incompatible_mask: np.ndarray,
@@ -308,26 +290,27 @@ def plot_kmeans_majority_blue_red_annotated(
     out_png: Path,
     show: bool = True,
 ) -> None:
-    """Plot with uniform blue points and red incompatible points; annotate clusters inline."""
+    """Plot KMeans clusters with uniform blue points and red X on incompatible samples.
+
+    No legend. Cluster names are written near each cluster center.
+    """
     plt.figure(figsize=(10, 8))
     labels_arr = np.array(cluster_named_labels)
     incompatible = np.asarray(incompatible_mask, dtype=bool)
-    compatible = ~incompatible
 
-    # Base layer: compatible points in one blue color.
-    if compatible.any():
-        plt.scatter(
-            xy[compatible, 0],
-            xy[compatible, 1],
-            s=16,
-            alpha=0.78,
-            color="#1f77b4",
-            marker="o",
-            linewidths=0.2,
-            edgecolors="black",
-        )
+    # Draw all points in one color.
+    plt.scatter(
+        xy[:, 0],
+        xy[:, 1],
+        s=16,
+        alpha=0.78,
+        color="#1f77b4",
+        marker="o",
+        linewidths=0.2,
+        edgecolors="black",
+    )
 
-    # Incompatible points in semi-transparent red, as requested.
+    # Overlay incompatible points as red crosses.
     if incompatible.any():
         plt.scatter(
             xy[incompatible, 0],
@@ -336,40 +319,21 @@ def plot_kmeans_majority_blue_red_annotated(
             alpha=0.30,
             color="red",
             marker="X",
-            linewidths=0.45,
+            linewidths=0.5,
             edgecolors="black",
         )
 
-    # Place cluster names near each cluster centroid (no legend).
+    # Annotate each cluster near its centroid.
     unique_clusters = sorted(set(cluster_named_labels))
-    global_center = xy.mean(axis=0)
-    x_span = max(float(xy[:, 0].max() - xy[:, 0].min()), 1e-8)
     y_span = max(float(xy[:, 1].max() - xy[:, 1].min()), 1e-8)
-    base_offset = 0.02 * np.sqrt(x_span * x_span + y_span * y_span)
-
+    y_offset = 0.02 * y_span
     for cluster_name in unique_clusters:
         idx = labels_arr == cluster_name
         pts = xy[idx]
         if len(pts) == 0:
             continue
         centroid = pts.mean(axis=0)
-        direction = centroid - global_center
-        norm = float(np.linalg.norm(direction))
-        if norm < 1e-8:
-            direction = np.array([1.0, 0.0], dtype=float)
-        else:
-            direction = direction / norm
-        spread = float(np.std(pts, axis=0).mean())
-        offset = direction * (base_offset + 0.25 * spread)
-        label_pos = centroid + offset
-
-        plt.plot(
-            [centroid[0], label_pos[0]],
-            [centroid[1], label_pos[1]],
-            color="#334155",
-            linewidth=0.5,
-            alpha=0.7,
-        )
+        label_pos = np.array([centroid[0], centroid[1] + y_offset], dtype=float)
         plt.text(
             label_pos[0],
             label_pos[1],
@@ -382,7 +346,7 @@ def plot_kmeans_majority_blue_red_annotated(
                 "boxstyle": "round,pad=0.20",
                 "facecolor": "white",
                 "edgecolor": "#334155",
-                "alpha": 0.78,
+                "alpha": 0.80,
             },
         )
 
@@ -490,11 +454,19 @@ def _resolve_config_and_paths(exp: TsneExp) -> Tuple[Dict[str, Any], Path, str, 
     return config, model_dir, run_id, out_dir, model_id
 
 
-def _build_runtime(exp: TsneExp) -> _TsneRuntime:
-    """Load heavy objects once and reuse them across split analyses."""
+def extract_embeddings_and_metadata(
+    exp: TsneExp,
+    split: str,
+    show_plots: bool = False,
+) -> Tuple[np.ndarray, pd.DataFrame, Path]:
+    """Extract last-layer pooled embeddings and associated metadata.
+
+    Returns: (X, df, out_dir)
+    """
     set_seed(exp.seed)
     config, model_dir, _run_id, out_dir, model_id = _resolve_config_and_paths(exp)
 
+    # Prefer loading feature extractor from the fine-tuned directory
     try:
         feature_extractor = AutoFeatureExtractor.from_pretrained(
             str(model_dir),
@@ -511,11 +483,21 @@ def _build_runtime(exp: TsneExp) -> _TsneRuntime:
         feature_extractor=feature_extractor,
         seed=exp.seed,
     )
+    if split == "train":
+        ds = prepared_ds.train_dataset
+    elif split == "eval":
+        ds = prepared_ds.eval_dataset
+    else:
+        raise ValueError(f"Unsupported split '{split}'. Expected one of: train, eval.")
+    n = min(len(ds), exp.max_items)
+    ds = ds.select(range(n))
+
     collator = AudioDataCollator(
         feature_extractor=feature_extractor,
         model_input_name=prepared_ds.model_input_name,
     )
 
+    # Load fine-tuned model with hidden states
     cfg = AutoConfig.from_pretrained(str(model_dir))
     cfg.output_hidden_states = True
     model = AutoModelForAudioClassification.from_pretrained(str(model_dir), config=cfg)
@@ -526,41 +508,6 @@ def _build_runtime(exp: TsneExp) -> _TsneRuntime:
 
     speaker_col = str(get_nested(config, "data.speaker_column"))
     label_col = str(get_nested(config, "data.label_column"))
-    return _TsneRuntime(
-        config=config,
-        out_dir=out_dir,
-        model_dir=model_dir,
-        model_id=model_id,
-        feature_extractor=feature_extractor,
-        prepared_ds=prepared_ds,
-        collator=collator,
-        model=model,
-        device=device,
-        speaker_col=speaker_col,
-        label_col=label_col,
-    )
-
-
-def extract_embeddings_and_metadata(
-    exp: TsneExp,
-    split: str,
-    runtime: Optional[_TsneRuntime] = None,
-) -> Tuple[np.ndarray, pd.DataFrame, Path]:
-    """Extract last-layer pooled embeddings and associated metadata.
-
-    Returns: (X, df, out_dir)
-    """
-    rt = runtime if runtime is not None else _build_runtime(exp)
-    out_dir = rt.out_dir
-
-    if split == "train":
-        ds = rt.prepared_ds.train_dataset
-    elif split == "eval":
-        ds = rt.prepared_ds.eval_dataset
-    else:
-        raise ValueError(f"Unsupported split '{split}'. Expected one of: train, eval.")
-    n = min(len(ds), exp.max_items)
-    ds = ds.select(range(n))
 
     embs: list[np.ndarray] = []
     speakers: list[str] = []
@@ -576,14 +523,14 @@ def extract_embeddings_and_metadata(
     ):
         items = [ds[i] for i in range(start, min(start + exp.batch_size, len(ds)))]
 
-        speakers.extend([str(it.get(rt.speaker_col, "NA")) for it in items])
-        labels.extend([str(it.get(rt.label_col, "NA")) for it in items])
+        speakers.extend([str(it.get(speaker_col, "NA")) for it in items])
+        labels.extend([str(it.get(label_col, "NA")) for it in items])
 
-        batch = rt.collator(items) # because speech segment lengths can vary, we need to collate them into a batch with padding
-        batch = {k: v.to(rt.device) for k, v in batch.items()}
+        batch = collator(items) # because speech segment lengths can vary, we need to collate them into a batch with padding
+        batch = {k: v.to(device) for k, v in batch.items()}
 
         with torch.no_grad():
-            out = rt.model(**batch, output_hidden_states=True, return_dict=True)
+            out = model(**batch, output_hidden_states=True, return_dict=True)
 
         last_hidden = out.hidden_states[-1]
         attn = batch.get("attention_mask", None) # (B, T), where mask = 1 for real samples, 0 for padding.
@@ -594,8 +541,8 @@ def extract_embeddings_and_metadata(
                 # Try common backbone locations for wav2vec2-style models
                 backbone = None
                 for attr in ["wav2vec2", "model", "hubert", "mms"]:
-                    if hasattr(rt.model, attr):
-                        backbone = getattr(rt.model, attr)
+                    if hasattr(model, attr):
+                        backbone = getattr(model, attr)
                         break
 
                 if backbone is not None:
@@ -620,17 +567,17 @@ def run_tsne_analysis(
     legend: bool = True,
 ) -> TsneRunPaths:
     """End-to-end for all splits: embeddings -> t-SNE -> kNN -> KMeans -> plots -> reports."""
-    runtime = _build_runtime(exp)
     legend = True
     split_names = ["train", "eval"]
-    out_dir: Path = runtime.out_dir
+    out_dir: Optional[Path] = None
     split_dirs: dict[str, Path] = {}
     split_reports: dict[str, Path] = {}
     split_metrics: dict[str, dict[str, float | int]] = {}
     split_artifacts: dict[str, dict[str, Path]] = {}
 
     for split_name in split_names:
-        X, df, _ = extract_embeddings_and_metadata(exp, split=split_name, runtime=runtime)
+        X, df, resolved_out_dir = extract_embeddings_and_metadata(exp, split=split_name)
+        out_dir = resolved_out_dir
 
         split_dir = out_dir / split_name
         split_dir.mkdir(parents=True, exist_ok=True)
@@ -720,9 +667,6 @@ def run_tsne_analysis(
         plot_by_kmeans_majority_compatibility_alpha30_png = (
             split_dir / "tsne_by_kmeans_majority_compatibility_alpha30.png"
         )
-        plot_by_kmeans_majority_blue_red_annotated_png = (
-            split_dir / "tsne_by_kmeans_majority_blue_red_annotated.png"
-        )
         plot_points(
             X2,
             df["label"].astype(str).tolist(),
@@ -748,12 +692,12 @@ def run_tsne_analysis(
             legend=legend,
             show=show_plots,
         )
-        plot_points(
+        plot_kmeans_uniform_with_mismatch_marks(
             X2,
             df_tsne["kmeans_cluster"].astype(str).tolist(),
+            incompatible_mask=incompatible_mask,
             title=f"t-SNE by KMeans cluster [{split_name}] ({exp.tag})",
             out_png=plot_by_kmeans_png,
-            legend=legend,
             show=show_plots,
         )
         plot_kmeans_majority_compatibility(
@@ -784,14 +728,6 @@ def run_tsne_analysis(
             out_png=plot_by_kmeans_majority_compatibility_alpha30_png,
             incompatible_alpha=0.30,
             legend=legend,
-            show=show_plots,
-        )
-        plot_kmeans_majority_blue_red_annotated(
-            X2,
-            df_tsne["kmeans_cluster"].astype(str).tolist(),
-            incompatible_mask=incompatible_mask,
-            title=f"t-SNE by KMeans majority (blue correct, red wrong 30%) [{split_name}] ({exp.tag})",
-            out_png=plot_by_kmeans_majority_blue_red_annotated_png,
             show=show_plots,
         )
 
@@ -854,8 +790,10 @@ def run_tsne_analysis(
             "plot_by_kmeans_majority_compatibility_png": plot_by_kmeans_majority_compatibility_png,
             "plot_by_kmeans_majority_compatibility_alpha70_png": plot_by_kmeans_majority_compatibility_alpha70_png,
             "plot_by_kmeans_majority_compatibility_alpha30_png": plot_by_kmeans_majority_compatibility_alpha30_png,
-            "plot_by_kmeans_majority_blue_red_annotated_png": plot_by_kmeans_majority_blue_red_annotated_png,
         }
+
+    if out_dir is None:
+        raise RuntimeError("Failed to resolve output directory for t-SNE analysis.")
 
     # Root summary report (keeps compare helper compatible via knn_acc_* lines from eval split)
     summary_report_path = out_dir / "report.txt"
@@ -907,7 +845,6 @@ def run_tsne_analysis(
         plot_by_kmeans_majority_compatibility_png=rep["plot_by_kmeans_majority_compatibility_png"],
         plot_by_kmeans_majority_compatibility_alpha70_png=rep["plot_by_kmeans_majority_compatibility_alpha70_png"],
         plot_by_kmeans_majority_compatibility_alpha30_png=rep["plot_by_kmeans_majority_compatibility_alpha30_png"],
-        plot_by_kmeans_majority_blue_red_annotated_png=rep["plot_by_kmeans_majority_blue_red_annotated_png"],
         report_txt=summary_report_path,
         split_dirs=split_dirs,
         split_reports=split_reports,
