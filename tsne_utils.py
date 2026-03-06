@@ -23,8 +23,9 @@ import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.neighbors import KNeighborsClassifier
 from transformers import (
     AutoConfig,
@@ -54,7 +55,6 @@ class TsneExp:
     model_dir: Optional[Path] = None  # if None -> auto-pick latest run
 
     # Run controls
-    split: str = "eval"  # "train" or "eval"
     max_items: int = 2000
     batch_size: int = 32
     seed: int = 42
@@ -64,6 +64,7 @@ class TsneExp:
 
     # Analysis knobs
     knn_k: int = 5
+    kmeans_k: Optional[int] = None  # if None -> number of unique labels in split
     tsne_perplexity: Optional[int] = None  # if None -> auto heuristic
 
 
@@ -74,10 +75,15 @@ class TsneRunPaths:
     out_dir: Path
     embeddings_npy: Path
     tsne_npy: Path
+    kmeans_npy: Path | str = "kmeans_labels.npy"
     plot_by_label_png: Path | str = "tsne_by_label.png"
     plot_by_speaker_png: Path | str = "tsne_by_speaker.png"
+    plot_by_knn_label_png: Path | str = "tsne_by_knn_label.png"
+    plot_by_kmeans_png: Path | str = "tsne_by_kmeans.png"
     metadata_csv: Path | str = "metadata_tsne.csv"
     report_txt: Path | str = "report.txt"
+    split_dirs: dict[str, Path] = field(default_factory=dict)
+    split_reports: dict[str, Path] = field(default_factory=dict)
 
 
 def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -102,7 +108,7 @@ def plot_points(
     title: str,
     out_png: Path,
     max_legend_items: int = 40,
-    legend: bool = False,
+    legend: bool = True,
     show: bool = True,
 ) -> None:
     """Scatter-plot 2D points and color by label.
@@ -118,14 +124,16 @@ def plot_points(
         plt.scatter(xy[idx, 0], xy[idx, 1], s=10, alpha=0.7, label=lab)
 
     plt.title(title)
-    # plt.xlabel("t-SNE dim 1")
-    # plt.ylabel("t-SNE dim 2")
+    plt.xlabel("t-SNE dim 1")
+    plt.ylabel("t-SNE dim 2")
 
     if legend:
-        if len(unique_labels) <= max_legend_items:
-            plt.legend(markerscale=2, fontsize=8, loc="best")
-        else:
-            plt.legend([], [], frameon=False)
+        n_cols = 1
+        if len(unique_labels) > max_legend_items:
+            n_cols = 2
+        if len(unique_labels) > max_legend_items * 2:
+            n_cols = 3
+        plt.legend(markerscale=2, fontsize=8, loc="best", ncol=n_cols)
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
@@ -135,19 +143,35 @@ def plot_points(
     plt.close()
 
 
-def knn_probe_accuracy(X: np.ndarray, y: np.ndarray, k: int = 5, seed: int = 42) -> float:
-    """Quick decodability probe: kNN accuracy with 5-fold stratified CV."""
+def knn_probe(X: np.ndarray, y: np.ndarray, k: int = 5, seed: int = 42) -> Tuple[float, np.ndarray, int]:
+    """kNN probe with robust CV and per-sample predictions for visualization."""
     y = np.asarray(y)
     n_classes = len(set(y.tolist()))
     if n_classes < 2:
-        return float("nan")
+        return float("nan"), y, 1
 
     # keep k sane for small datasets / many classes
     k_eff = min(k, max(1, len(y) // n_classes))
     clf = KNeighborsClassifier(n_neighbors=k_eff)
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
-    scores = cross_val_score(clf, X, y, cv=cv)
-    return float(scores.mean())
+    _, counts = np.unique(y, return_counts=True)
+    n_splits = int(min(5, counts.min()))
+
+    if n_splits < 2:
+        clf.fit(X, y)
+        preds = clf.predict(X)
+        return float((preds == y).mean()), preds, k_eff
+
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    preds = cross_val_predict(clf, X, y, cv=cv)
+    return float((preds == y).mean()), preds, k_eff
+
+
+def run_kmeans(X: np.ndarray, n_clusters: int, seed: int = 42) -> Tuple[np.ndarray, float]:
+    """Run KMeans and return cluster IDs and inertia."""
+    n_clusters_eff = max(1, min(int(n_clusters), len(X)))
+    model = KMeans(n_clusters=n_clusters_eff, random_state=seed, n_init="auto")
+    cluster_ids = model.fit_predict(X)
+    return cluster_ids, float(model.inertia_)
 
 
 def _resolve_config_and_paths(exp: TsneExp) -> Tuple[Dict[str, Any], Path, str, Path, str]:
@@ -214,6 +238,7 @@ def _resolve_config_and_paths(exp: TsneExp) -> Tuple[Dict[str, Any], Path, str, 
 
 def extract_embeddings_and_metadata(
     exp: TsneExp,
+    split: str,
     show_plots: bool = False,
 ) -> Tuple[np.ndarray, pd.DataFrame, Path]:
     """Extract last-layer pooled embeddings and associated metadata.
@@ -240,7 +265,12 @@ def extract_embeddings_and_metadata(
         feature_extractor=feature_extractor,
         seed=exp.seed,
     )
-    ds = prepared_ds.train_dataset if exp.split == "train" else prepared_ds.eval_dataset
+    if split == "train":
+        ds = prepared_ds.train_dataset
+    elif split == "eval":
+        ds = prepared_ds.eval_dataset
+    else:
+        raise ValueError(f"Unsupported split '{split}'. Expected one of: train, eval.")
     n = min(len(ds), exp.max_items)
     ds = ds.select(range(n))
 
@@ -316,90 +346,221 @@ def extract_embeddings_and_metadata(
 def run_tsne_analysis(
     exp: TsneExp,
     show_plots: bool = False,
-    legend: bool = False,
+    legend: bool = True,
 ) -> TsneRunPaths:
-    """End-to-end: extract embeddings -> t-SNE -> plots -> report -> save artifacts."""
-    X, df, out_dir = extract_embeddings_and_metadata(exp)
+    """End-to-end for all splits: embeddings -> t-SNE -> kNN -> KMeans -> plots -> reports."""
+    legend = True
+    split_names = ["train", "eval"]
+    out_dir: Optional[Path] = None
+    split_dirs: dict[str, Path] = {}
+    split_reports: dict[str, Path] = {}
+    split_metrics: dict[str, dict[str, float | int]] = {}
+    split_artifacts: dict[str, dict[str, Path]] = {}
 
-    # Save embeddings + metadata (these are the *reusable* artifacts)
-    embeddings_path = out_dir / "last_layer_embeddings.npy"
-    metadata_path = out_dir / "metadata.csv"
-    np.save(embeddings_path, X)
-    df.to_csv(metadata_path, index=False)
+    for split_name in split_names:
+        X, df, resolved_out_dir = extract_embeddings_and_metadata(exp, split=split_name)
+        out_dir = resolved_out_dir
 
-    # t-SNE
-    if exp.tsne_perplexity is None:
-        perplexity = min(30, max(5, (len(X) - 1) // 3))
-    else:
-        perplexity = int(exp.tsne_perplexity)
-    perplexity = min(perplexity, max(5, len(X) - 1))
+        split_dir = out_dir / split_name
+        split_dir.mkdir(parents=True, exist_ok=True)
+        split_dirs[split_name] = split_dir
 
-    tsne = TSNE(
-        n_components=2,
-        init="pca",
-        learning_rate="auto",
-        perplexity=perplexity,
-        random_state=exp.seed,
-    )
-    X2 = tsne.fit_transform(X)
-    tsne_path = out_dir / "tsne_2d.npy"
-    np.save(tsne_path, X2)
+        embeddings_path = split_dir / "last_layer_embeddings.npy"
+        metadata_path = split_dir / "metadata.csv"
+        np.save(embeddings_path, X)
+        df.to_csv(metadata_path, index=False)
 
-    # Save t-SNE coords alongside metadata for easy plotting/comparison
-    df_tsne = df.copy()
-    df_tsne["tsne_x"] = X2[:, 0]
-    df_tsne["tsne_y"] = X2[:, 1]
-    df_tsne.to_csv(out_dir / "metadata_tsne.csv", index=False)
+        if len(X) < 2:
+            raise ValueError(f"Split '{split_name}' has only {len(X)} item(s); need at least 2 for t-SNE.")
 
-    # Plots
-    plot_by_label_png = out_dir / "tsne_by_label.png"
-    plot_by_speaker_png = out_dir / "tsne_by_speaker.png"
-    plot_points(
-        X2,
-        df["label"].astype(str).tolist(),
-        title=f"t-SNE (last layer) colored by label [{exp.split}] ({exp.tag})",
-        out_png=plot_by_label_png,
-        legend=legend,
-        show=show_plots,
-    )
-    plot_points(
-        X2,
-        df["speaker_id"].astype(str).tolist(),
-        title=f"t-SNE (last layer) colored by speaker [{exp.split}] ({exp.tag})",
-        out_png=plot_by_speaker_png,
-        max_legend_items=50,
-        legend=legend,
-        show=show_plots,
-    )
+        # t-SNE
+        if exp.tsne_perplexity is None:
+            perplexity = min(30, max(5, (len(X) - 1) // 3))
+        else:
+            perplexity = int(exp.tsne_perplexity)
+        perplexity = min(perplexity, max(1, len(X) - 1))
 
-    # Report (kNN probes)
-    speaker_acc = knn_probe_accuracy(X, df["speaker_id"].astype(str).values, k=exp.knn_k, seed=exp.seed)
-    label_acc = knn_probe_accuracy(X, df["label"].astype(str).values, k=exp.knn_k, seed=exp.seed)
-    report_path = out_dir / "report.txt"
-    report_path.write_text(
-        "\n".join(
+        tsne = TSNE(
+            n_components=2,
+            init="pca",
+            learning_rate="auto",
+            perplexity=perplexity,
+            random_state=exp.seed,
+        )
+        X2 = tsne.fit_transform(X)
+        tsne_path = split_dir / "tsne_2d.npy"
+        np.save(tsne_path, X2)
+
+        # kNN probes + visualization labels
+        label_acc, label_preds, knn_k_eff_label = knn_probe(
+            X, df["label"].astype(str).values, k=exp.knn_k, seed=exp.seed
+        )
+        speaker_acc, speaker_preds, knn_k_eff_speaker = knn_probe(
+            X, df["speaker_id"].astype(str).values, k=exp.knn_k, seed=exp.seed
+        )
+
+        # KMeans
+        auto_k = int(max(1, df["label"].astype(str).nunique()))
+        kmeans_k = exp.kmeans_k if exp.kmeans_k is not None else auto_k
+        kmeans_cluster_ids, kmeans_inertia = run_kmeans(X, n_clusters=kmeans_k, seed=exp.seed)
+        kmeans_path = split_dir / "kmeans_labels.npy"
+        np.save(kmeans_path, kmeans_cluster_ids)
+
+        # Save t-SNE coords + metadata for easy plotting/comparison
+        df_tsne = df.copy()
+        df_tsne["tsne_x"] = X2[:, 0]
+        df_tsne["tsne_y"] = X2[:, 1]
+        df_tsne["knn_pred_label"] = label_preds.astype(str)
+        df_tsne["knn_pred_speaker"] = speaker_preds.astype(str)
+        df_tsne["kmeans_cluster_id"] = kmeans_cluster_ids.astype(int)
+        df_tsne["kmeans_cluster"] = [f"cluster_{int(cid):02d}" for cid in kmeans_cluster_ids.tolist()]
+        metadata_tsne_path = split_dir / "metadata_tsne.csv"
+        df_tsne.to_csv(metadata_tsne_path, index=False)
+
+        # Plots (legend always on)
+        plot_by_label_png = split_dir / "tsne_by_label.png"
+        plot_by_speaker_png = split_dir / "tsne_by_speaker.png"
+        plot_by_knn_label_png = split_dir / "tsne_by_knn_label.png"
+        plot_by_kmeans_png = split_dir / "tsne_by_kmeans.png"
+        plot_points(
+            X2,
+            df["label"].astype(str).tolist(),
+            title=f"t-SNE (last layer) by label [{split_name}] ({exp.tag})",
+            out_png=plot_by_label_png,
+            legend=legend,
+            show=show_plots,
+        )
+        plot_points(
+            X2,
+            df["speaker_id"].astype(str).tolist(),
+            title=f"t-SNE (last layer) by speaker [{split_name}] ({exp.tag})",
+            out_png=plot_by_speaker_png,
+            max_legend_items=50,
+            legend=legend,
+            show=show_plots,
+        )
+        plot_points(
+            X2,
+            df_tsne["knn_pred_label"].astype(str).tolist(),
+            title=f"t-SNE by kNN predicted label [{split_name}] ({exp.tag})",
+            out_png=plot_by_knn_label_png,
+            legend=legend,
+            show=show_plots,
+        )
+        plot_points(
+            X2,
+            df_tsne["kmeans_cluster"].astype(str).tolist(),
+            title=f"t-SNE by KMeans cluster [{split_name}] ({exp.tag})",
+            out_png=plot_by_kmeans_png,
+            legend=legend,
+            show=show_plots,
+        )
+
+        cluster_counts = df_tsne["kmeans_cluster"].value_counts().sort_index()
+        top_labels_lines: list[str] = []
+        ctab = pd.crosstab(df_tsne["kmeans_cluster"], df_tsne["label"])
+        for cluster_name in ctab.index:
+            top = ctab.loc[cluster_name].sort_values(ascending=False).head(3)
+            top_labels = ", ".join([f"{lab}:{int(cnt)}" for lab, cnt in top.items() if int(cnt) > 0])
+            top_labels_lines.append(f"{cluster_name}: {top_labels if top_labels else 'NA'}")
+
+        # Per-split report
+        report_path = split_dir / "report.txt"
+        lines = [
+            f"tag: {exp.tag}",
+            f"split: {split_name}",
+            f"N: {len(X)}",
+            f"emb_dim: {X.shape[1]}",
+            f"tsne_perplexity: {perplexity}",
+            f"knn_k_requested: {exp.knn_k}",
+            f"knn_k_effective_label: {knn_k_eff_label}",
+            f"knn_k_effective_speaker: {knn_k_eff_speaker}",
+            f"knn_acc_label: {label_acc:.4f}",
+            f"knn_acc_speaker: {speaker_acc:.4f}",
+            f"kmeans_k_requested: {kmeans_k}",
+            f"kmeans_k_effective: {len(np.unique(kmeans_cluster_ids))}",
+            f"kmeans_inertia: {kmeans_inertia:.4f}",
+            "",
+            "kmeans_cluster_counts:",
+        ]
+        lines.extend([f"{name}: {int(count)}" for name, count in cluster_counts.items()])
+        lines.extend(["", "kmeans_top_labels_per_cluster:"])
+        lines.extend(top_labels_lines)
+        lines.append("")
+        report_path.write_text("\n".join(lines))
+
+        split_reports[split_name] = report_path
+        split_metrics[split_name] = {
+            "N": int(len(X)),
+            "emb_dim": int(X.shape[1]),
+            "tsne_perplexity": int(perplexity),
+            "knn_acc_label": float(label_acc),
+            "knn_acc_speaker": float(speaker_acc),
+            "kmeans_k_effective": int(len(np.unique(kmeans_cluster_ids))),
+            "kmeans_inertia": float(kmeans_inertia),
+        }
+        split_artifacts[split_name] = {
+            "metadata_csv": metadata_tsne_path,
+            "embeddings_npy": embeddings_path,
+            "tsne_npy": tsne_path,
+            "kmeans_npy": kmeans_path,
+            "plot_by_label_png": plot_by_label_png,
+            "plot_by_speaker_png": plot_by_speaker_png,
+            "plot_by_knn_label_png": plot_by_knn_label_png,
+            "plot_by_kmeans_png": plot_by_kmeans_png,
+        }
+
+    if out_dir is None:
+        raise RuntimeError("Failed to resolve output directory for t-SNE analysis.")
+
+    # Root summary report (keeps compare helper compatible via knn_acc_* lines from eval split)
+    summary_report_path = out_dir / "report.txt"
+    summary_lines = [
+        f"tag: {exp.tag}",
+        "splits: train, eval",
+    ]
+    if "eval" in split_metrics:
+        summary_lines.extend(
             [
-                f"tag: {exp.tag}",
-                f"split: {exp.split}",
-                f"N: {len(X)}",
-                f"emb_dim: {X.shape[1]}",
-                f"tsne_perplexity: {perplexity}",
-                f"knn_k: {exp.knn_k}",
-                f"knn_acc_label: {label_acc:.4f}",
-                f"knn_acc_speaker: {speaker_acc:.4f}",
+                f"knn_acc_label: {split_metrics['eval']['knn_acc_label']:.4f}",
+                f"knn_acc_speaker: {split_metrics['eval']['knn_acc_speaker']:.4f}",
+            ]
+        )
+    summary_lines.append("")
+    for split_name in split_names:
+        if split_name not in split_metrics:
+            continue
+        m = split_metrics[split_name]
+        summary_lines.extend(
+            [
+                f"[{split_name}]",
+                f"N: {m['N']}",
+                f"emb_dim: {m['emb_dim']}",
+                f"tsne_perplexity: {m['tsne_perplexity']}",
+                f"knn_acc_label: {m['knn_acc_label']:.4f}",
+                f"knn_acc_speaker: {m['knn_acc_speaker']:.4f}",
+                f"kmeans_k_effective: {m['kmeans_k_effective']}",
+                f"kmeans_inertia: {m['kmeans_inertia']:.4f}",
                 "",
             ]
         )
-    )
+    summary_report_path.write_text("\n".join(summary_lines))
 
+    representative_split = "eval" if "eval" in split_artifacts else next(iter(split_artifacts))
+    rep = split_artifacts[representative_split]
     return TsneRunPaths(
         out_dir=out_dir,
-        metadata_csv=metadata_path,
-        embeddings_npy=embeddings_path,
-        tsne_npy=tsne_path,
-        plot_by_label_png=plot_by_label_png,
-        plot_by_speaker_png=plot_by_speaker_png,
-        report_txt=report_path,
+        metadata_csv=rep["metadata_csv"],
+        embeddings_npy=rep["embeddings_npy"],
+        tsne_npy=rep["tsne_npy"],
+        kmeans_npy=rep["kmeans_npy"],
+        plot_by_label_png=rep["plot_by_label_png"],
+        plot_by_speaker_png=rep["plot_by_speaker_png"],
+        plot_by_knn_label_png=rep["plot_by_knn_label_png"],
+        plot_by_kmeans_png=rep["plot_by_kmeans_png"],
+        report_txt=summary_report_path,
+        split_dirs=split_dirs,
+        split_reports=split_reports,
     )
 
 

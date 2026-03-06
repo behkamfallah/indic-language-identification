@@ -51,12 +51,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Explicit HF model dir. If omitted, auto-pick latest run folder under save_dir.",
     )
-    ap.add_argument("--split", choices=["train", "eval"], default="eval")
     ap.add_argument("--max_items", type=int, default=2000)
     ap.add_argument("--batch_size", type=int, default=8)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--tag", type=str, default="default", help="Subfolder name under tsne_analysis/")
     ap.add_argument("--knn_k", type=int, default=5)
+    ap.add_argument(
+        "--kmeans_k",
+        type=int,
+        default=None,
+        help="Override KMeans cluster count. If omitted, uses number of unique labels in each split.",
+    )
     ap.add_argument(
         "--tsne_perplexity",
         type=int,
@@ -64,7 +69,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Override t-SNE perplexity. If omitted, uses a safe heuristic.",
     )
     ap.add_argument("--show_plots", action="store_true", help="Display plots (useful in notebooks)")
-    ap.add_argument("--legend", action="store_true", help="Show legends (can be huge)")
 
     # Optional compare mode
     ap.add_argument("--compare", action="store_true", help="Compare two already-saved run folders")
@@ -94,20 +98,22 @@ def main() -> None:
         config_path=args.config,
         overrides=list(args.override),
         model_dir=args.model_dir,
-        split=args.split,
         max_items=args.max_items,
         batch_size=args.batch_size,
         seed=args.seed,
         tag=args.tag,
         knn_k=args.knn_k,
+        kmeans_k=args.kmeans_k,
         tsne_perplexity=args.tsne_perplexity,
     )
 
-    paths = run_tsne_analysis(exp, show_plots=args.show_plots, legend=args.legend)
+    paths = run_tsne_analysis(exp, show_plots=args.show_plots)
     print(f"Done. Saved to: {paths.out_dir.resolve()}")
-    print(f"Embeddings: {paths.embeddings_npy.name}")
-    print(f"t-SNE:       {paths.tsne_npy.name}")
-    print(f"Report:     {paths.report_txt.name}")
+    print(f"Summary report: {paths.report_txt.name}")
+    for split_name, split_dir in paths.split_dirs.items():
+        print(f"[{split_name}] dir: {split_dir.resolve()}")
+    for split_name, split_report in paths.split_reports.items():
+        print(f"[{split_name}] report: {split_report.name}")
 
 
 if __name__ == "__main__":
