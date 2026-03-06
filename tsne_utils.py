@@ -282,85 +282,6 @@ def plot_kmeans_majority_compatibility(
     plt.close()
 
 
-def plot_kmeans_uniform_with_mismatch_marks(
-    xy: np.ndarray,
-    cluster_named_labels: list[str],
-    incompatible_mask: np.ndarray,
-    title: str,
-    out_png: Path,
-    show: bool = True,
-) -> None:
-    """Plot KMeans clusters with uniform blue points and red X on incompatible samples.
-
-    No legend. Cluster names are written near each cluster center.
-    """
-    plt.figure(figsize=(10, 8))
-    labels_arr = np.array(cluster_named_labels)
-    incompatible = np.asarray(incompatible_mask, dtype=bool)
-
-    # Draw all points in one color.
-    plt.scatter(
-        xy[:, 0],
-        xy[:, 1],
-        s=16,
-        alpha=0.78,
-        color="#1f77b4",
-        marker="o",
-        linewidths=0.2,
-        edgecolors="black",
-    )
-
-    # Overlay incompatible points as red crosses.
-    if incompatible.any():
-        plt.scatter(
-            xy[incompatible, 0],
-            xy[incompatible, 1],
-            s=26,
-            alpha=0.30,
-            color="red",
-            marker="X",
-            linewidths=0.5,
-            edgecolors="black",
-        )
-
-    # Annotate each cluster near its centroid.
-    unique_clusters = sorted(set(cluster_named_labels))
-    y_span = max(float(xy[:, 1].max() - xy[:, 1].min()), 1e-8)
-    y_offset = 0.02 * y_span
-    for cluster_name in unique_clusters:
-        idx = labels_arr == cluster_name
-        pts = xy[idx]
-        if len(pts) == 0:
-            continue
-        centroid = pts.mean(axis=0)
-        label_pos = np.array([centroid[0], centroid[1] + y_offset], dtype=float)
-        plt.text(
-            label_pos[0],
-            label_pos[1],
-            cluster_name,
-            fontsize=7,
-            ha="center",
-            va="center",
-            color="#111827",
-            bbox={
-                "boxstyle": "round,pad=0.20",
-                "facecolor": "white",
-                "edgecolor": "#334155",
-                "alpha": 0.80,
-            },
-        )
-
-    plt.title(title)
-    plt.xlabel("t-SNE dim 1")
-    plt.ylabel("t-SNE dim 2")
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout()
-    plt.savefig(out_png, dpi=200)
-    if show:
-        plt.show()
-    plt.close()
-
-
 def knn_probe(X: np.ndarray, y: np.ndarray, k: int = 5, seed: int = 42) -> Tuple[float, np.ndarray, int]:
     """kNN probe with robust CV and per-sample predictions for visualization."""
     y = np.asarray(y)
@@ -692,12 +613,12 @@ def run_tsne_analysis(
             legend=legend,
             show=show_plots,
         )
-        plot_kmeans_uniform_with_mismatch_marks(
+        plot_points(
             X2,
             df_tsne["kmeans_cluster"].astype(str).tolist(),
-            incompatible_mask=incompatible_mask,
             title=f"t-SNE by KMeans cluster [{split_name}] ({exp.tag})",
             out_png=plot_by_kmeans_png,
+            legend=legend,
             show=show_plots,
         )
         plot_kmeans_majority_compatibility(
