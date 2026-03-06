@@ -77,6 +77,7 @@ class TsneRunPaths:
     plot_by_label_png: Path | str = "tsne_by_label.png"
     plot_by_speaker_png: Path | str = "tsne_by_speaker.png"
     metadata_csv: Path | str = "metadata_tsne.csv"
+    report_txt: Path | str = "report.txt"
 
 
 def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -177,7 +178,20 @@ def _resolve_config_and_paths(exp: TsneExp) -> Tuple[Dict[str, Any], Path, str, 
     model_id = str(get_nested(config, "model.id"))
 
     if exp.model_dir is not None:
-        model_dir = Path(exp.model_dir)
+        model_dir_input = Path(exp.model_dir)
+        if model_dir_input.is_absolute() or model_dir_input.exists():
+            model_dir = model_dir_input
+        else:
+            candidate_under_save_dir = base_model_dir / model_dir_input
+            if candidate_under_save_dir.exists():
+                model_dir = candidate_under_save_dir
+            else:
+                raise FileNotFoundError(
+                    "Could not resolve --model_dir. Tried:\n"
+                    f"  - {model_dir_input}\n"
+                    f"  - {candidate_under_save_dir}\n"
+                    "Pass an absolute path, a path relative to CWD, or a run folder name under save_dir."
+                )
         run_id = model_dir.name
     else:
         candidates = [p for p in base_model_dir.glob(f"{run_name}_*") if p.is_dir()]
@@ -207,12 +221,12 @@ def extract_embeddings_and_metadata(
     Returns: (X, df, out_dir)
     """
     set_seed(exp.seed)
-    config, _model_dir, _run_id, out_dir, model_id = _resolve_config_and_paths(exp)
+    config, model_dir, _run_id, out_dir, model_id = _resolve_config_and_paths(exp)
 
     # Prefer loading feature extractor from the fine-tuned directory
     try:
         feature_extractor = AutoFeatureExtractor.from_pretrained(
-            config["model_dir"],
+            str(model_dir),
             return_attention_mask=True,
         )
     except Exception:
@@ -236,9 +250,9 @@ def extract_embeddings_and_metadata(
     )
 
     # Load fine-tuned model with hidden states
-    cfg = AutoConfig.from_pretrained(config["model_dir"])
+    cfg = AutoConfig.from_pretrained(str(model_dir))
     cfg.output_hidden_states = True
-    model = AutoModelForAudioClassification.from_pretrained(config["model_dir"], config=cfg)
+    model = AutoModelForAudioClassification.from_pretrained(str(model_dir), config=cfg)
     model.eval()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
