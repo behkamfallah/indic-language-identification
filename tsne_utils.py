@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import sys
 from typing import Any, Dict, Optional, Tuple
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 import numpy as np
 import pandas as pd
@@ -173,7 +174,7 @@ def _resolve_config_and_paths(exp: TsneExp) -> Tuple[Dict[str, Any], Path, str, 
         raise ValueError("Missing 'save_dir' in config.")
     base_model_dir = Path(str(base_model_dir))
 
-    model_id = str(get_nested(config, "model.id", "facebook/mms-300m"))
+    model_id = str(get_nested(config, "model.id"))
 
     if exp.model_dir is not None:
         model_dir = Path(exp.model_dir)
@@ -243,14 +244,21 @@ def extract_embeddings_and_metadata(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    speaker_col = str(get_nested(config, "data.speaker_column", "speaker_id"))
-    label_col = str(get_nested(config, "data.label_column", "language"))
+    speaker_col = str(get_nested(config, "data.speaker_column"))
+    label_col = str(get_nested(config, "data.label_column"))
 
     embs: list[np.ndarray] = []
     speakers: list[str] = []
     labels: list[str] = []
 
-    for start in tqdm(range(0, len(ds), exp.batch_size), desc="Extracting embeddings"):
+    total_batches = (len(ds) + exp.batch_size - 1) // exp.batch_size
+    for start in tqdm(
+        range(0, len(ds), exp.batch_size),
+        total=total_batches,
+        desc="Extracting embeddings",
+        unit="batch",
+        disable=not sys.stderr.isatty(),
+    ):
         items = [ds[i] for i in range(start, min(start + exp.batch_size, len(ds)))]
 
         speakers.extend([str(it.get(speaker_col, "NA")) for it in items])
@@ -262,7 +270,6 @@ def extract_embeddings_and_metadata(
         with torch.no_grad():
             out = model(**batch, output_hidden_states=True, return_dict=True)
 
-        print(f"Processed {len(embs) + len(items)}/{len(ds)} items", end="\r")
         last_hidden = out.hidden_states[-1]
         attn = batch.get("attention_mask", None) # (B, T), where mask = 1 for real samples, 0 for padding.
         # Align attention mask length to last_hidden's time dimension (T_hidden)
