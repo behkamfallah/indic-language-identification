@@ -13,6 +13,7 @@ Key idea: a mutable experiment container (TsneExp) that you can tweak in code.
 
 from __future__ import annotations
 
+import colorsys
 from dataclasses import dataclass, field
 from pathlib import Path
 import sys
@@ -105,18 +106,53 @@ def mean_pool_last_hidden(last_hidden: torch.Tensor, attention_mask: torch.Tenso
     return summed / denom
 
 
+def _is_red_like(color: Any) -> bool:
+    """Detect warm red/orange-like colors to avoid confusion with red mismatch markers."""
+    rgb = tuple(float(v) for v in color[:3])
+    r, g, b = rgb
+    h, s, _v = colorsys.rgb_to_hsv(r, g, b)
+
+    if s < 0.12:
+        return False
+
+    red_or_orange_hue = (h <= 0.14) or (h >= 0.90)
+    red_dominant = (r >= g * 1.08) and (r >= b * 1.08)
+    warm_bias = (r > 0.55) and (g < 0.62) and (b < 0.62)
+    return red_or_orange_hue or red_dominant or warm_bias
+
+
 def _build_style_map(unique_labels: list[str]) -> dict[str, tuple[Any, str]]:
     """Map each label to a visually distinct (color, marker) style."""
     markers = ["o", "s", "^", "D", "P", "X", "v", "<", ">", "*", "h", "H", "p", "8"]
     cmaps = ["tab20", "tab20b", "tab20c", "Set3", "Dark2", "Set1", "Set2", "Accent", "Paired"]
-    colors: list[Any] = []
+    all_colors: list[Any] = []
     for cmap_name in cmaps:
         cmap = plt.get_cmap(cmap_name)
         for idx in range(cmap.N):
-            colors.append(cmap(idx))
+            all_colors.append(cmap(idx))
+
+    filtered_colors: list[Any] = [c for c in all_colors if not _is_red_like(c)]
+
+    # De-duplicate similar colors across colormaps.
+    colors: list[Any] = []
+    seen: set[tuple[float, float, float]] = set()
+    for c in filtered_colors:
+        key = (round(float(c[0]), 3), round(float(c[1]), 3), round(float(c[2]), 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        colors.append(c)
 
     if not colors:
-        colors = ["C0"]
+        colors = [
+            "#1f77b4",  # blue
+            "#17becf",  # cyan
+            "#2ca02c",  # green
+            "#00b894",  # teal
+            "#4dabf7",  # light blue
+            "#20c997",  # aqua green
+            "#6f42c1",  # purple (non-red)
+        ]
 
     styles: dict[str, tuple[Any, str]] = {}
     n_colors = len(colors)
