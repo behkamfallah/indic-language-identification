@@ -13,13 +13,6 @@ Extras (compared to minimal):
 - Saves embeddings + t-SNE coordinates
 - Writes a short kNN probe report (label and speaker decodability)
 
-Typical usage (baseline):
-  python analyze_tsne.py --config task.yaml --tag baseline
-
-Debiased run (example):
-  python analyze_tsne.py --config task.yaml --tag debiased \
-    --override data.variant=debiased_v1 --model_dir ./models/<DEBIASED_RUN>
-
 Compare (optional):
   python analyze_tsne.py --compare \
     --compare_a <.../tsne_analysis/baseline> \

@@ -8,7 +8,6 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r requirements_cuda.txt
 ```
 
 This installs the standard cross-platform `torch` and `torchaudio` wheels for local development. The Docker image upgrades them to CUDA 11.8 builds during image creation.
@@ -166,3 +165,21 @@ export HF_TOKEN=...
 
 - Pitch and spectral augmentation depend on `torchaudio.sox_effects` and broken local SoX linkage will fail the pipeline.
 - `configs/task1_commented_reference.yaml` is the starting point if you want to understand the configuration surface.
+
+## Local SoX Setup
+
+You only need SoX for the pitch-based and spectral augmentation paths. The baseline pipeline and the Fourier-only pipeline do not require it.
+
+- macOS:
+
+```bash
+brew install sox
+sox --version
+```
+
+- Windows (PowerShell with Chocolatey):
+
+```powershell
+choco install sox.portable -y
+sox --version
+```
