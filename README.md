@@ -8,6 +8,7 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r requirements_cuda.txt
 ```
 
 This installs the standard cross-platform `torch` and `torchaudio` wheels for local development. The Docker image upgrades them to CUDA 11.8 builds during image creation.
