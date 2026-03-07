@@ -105,6 +105,7 @@ class FourierAugmenter:
             return waveform.astype(np.float32, copy=False)
 
         n_samples = waveform.shape[0]
+        # rFFT keeps only the non-redundant half-spectrum for a real waveform.
         spectrum = np.fft.rfft(waveform)
         magnitude = np.abs(spectrum)
         phase = np.angle(spectrum)
@@ -186,6 +187,7 @@ class FourierAugmenter:
         if n_bins <= 2:
             return False
 
+        # Leave DC and Nyquist untouched so irfft reconstruction stays well behaved.
         noise = self.rng.normal(loc=0.0, scale=self.phase_noise_std, size=n_bins - 2)
         phase[1:-1] += noise.astype(np.float64, copy=False)
         return True

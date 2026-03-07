@@ -12,7 +12,7 @@
 #   --override model.id=facebook/w2v-bert-2.0
 # -----------------------------------------------------------------------------
 
-# A human-readable name for this experiment run.
+# A name for this experiment run.
 # Used by Trainer/W&B and for easier comparison between runs.
 run_name: task1_reference_experiment
 

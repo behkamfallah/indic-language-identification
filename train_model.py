@@ -60,34 +60,26 @@ def main() -> None:
     use_hf = setup_hf(config)
     use_wandb = setup_wandb(config)
 
-    # --------------------------------- CREATE UNIQUE RUNNAME ---------------------------------
-    # Build run identity and output directory for this execution -> Example: 20260301_201530
+    # Stamp every run so metrics/artifacts and model checkpoints never collide.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Fetch the run name value provided in the config.
     base_run_name = str(get_nested(config, "run_name"))
     if not base_run_name:
-         raise ValueError("Config file must specify 'run_name'.")
-
-    # Create unique run ID by appending timestamp to the configured name -> Example: mms300m_baseline_20260301_201530
+        raise ValueError("Config file must specify 'run_name'.")
     run_id = f"{base_run_name}_{timestamp}"
-    # -----------------------------------------------------------------------------------------
 
-    # 1. Output Directory
+    # Keep lightweight run artifacts separate from the final HF checkpoint folder.
     base_output_dir = str(get_nested(config, "output_dir"))
     if not base_output_dir:
         raise ValueError("Config file must specify 'output_dir'.")
     output_dir = Path(base_output_dir) / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 2. Model Save Directory
     base_save_dir = str(get_nested(config, "save_dir"))
     if not base_save_dir:
         raise ValueError("Config file must specify 'save_dir'.")
-    # Update config so Trainer uses this timestamped path
+    # Update config so every downstream save uses the timestamped model directory.
     config["save_dir"] = str(Path(base_save_dir) / run_id)
 
-    # 3. WandB Run Name
     wandb_name = get_nested(config, "tracking.wandb_run_name")
     if wandb_name:
         config["tracking"]["wandb_run_name"] = f"{wandb_name}_{timestamp}"
@@ -175,7 +167,8 @@ def main() -> None:
         
         cm = confusion_matrix(labels, predictions)
         
-        # Save confusion matrix with class labels for easy visualization
+        # Save labels alongside the matrix so plotting scripts do not need the
+        # original run config to recover class order.
         cm_data = {
             "matrix": cm.tolist(),
             "labels": [prepared_data.id2label[i] for i in range(len(prepared_data.id2label))]

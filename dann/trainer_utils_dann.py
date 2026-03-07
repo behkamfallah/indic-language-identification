@@ -97,6 +97,8 @@ class DANNTrainer(Trainer):
 
         loss_lang = self.ce(lang_logits, labels)
         loss_spk = self.ce(speaker_logits, speaker_labels)
+        # The gradient reversal layer already flips the speaker-loss gradient on
+        # the path back into the shared encoder, so the forward loss stays additive.
         loss = loss_lang + float(self.dann_cfg.alpha) * loss_spk
 
         outputs.loss = loss

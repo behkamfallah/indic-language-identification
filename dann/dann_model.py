@@ -184,6 +184,8 @@ class DANNForAudioClassification(nn.Module):
         if attention_mask.shape[1] == feature_length:
             return attention_mask
 
+        # Audio backbones mostly downsample time, so map the raw input mask onto
+        # the hidden-state frame axis before masked mean pooling.
         if hasattr(self.base, "_get_feature_vector_attention_mask"):
             return self.base._get_feature_vector_attention_mask(feature_length, attention_mask)
 

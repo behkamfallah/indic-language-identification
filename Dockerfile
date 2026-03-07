@@ -23,10 +23,12 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 \
 # Workdir inside the container
 WORKDIR /app
 
-# Copy dependency list and install (uses cu118 wheels)
-COPY requirements_cuda.txt ./
+# Copy dependency list and install
+COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements_cuda.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu118 \
+        torch==2.2.2+cu118 torchaudio==2.2.2+cu118
 
 # Copy the project code
 COPY . .
